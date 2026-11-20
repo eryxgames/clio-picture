@@ -20,7 +20,7 @@ else
   SHARED := -shared
 endif
 
-SRC := src/noise.c src/dots.c
+SRC := src/noise.c src/dots.c src/ground.c src/sky.c
 HDR := include/clio_picture.h
 
 all: $(LIB)
@@ -29,7 +29,7 @@ $(LIB): $(SRC) $(HDR)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SHARED) -o $@ $(SRC) $(LDFLAGS) $(LDLIBS)
 
-build/test_picture: tests/test_picture.c $(SRC) $(HDR)
+build/test_picture: tests/test_picture.c tests/cases.h $(SRC) $(HDR)
 	@mkdir -p build
 	$(CC) $(CFLAGS) -DCLIO_PICTURE_STATIC -o $@ tests/test_picture.c $(SRC) $(LDFLAGS) $(LDLIBS)
 

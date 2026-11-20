@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org). Each follows CLIo's Python, which
 is the reference.
 
+## 0.2.0
+
+The open land's picture: the ground and the sky.
+
+- `clio_land_draw`: the ground caster of CLIo's open land (`Land.cast`): rays near to far, a
+  column each (or every other at low detail), the haze by distance, water with the sky in it
+  and its glints, the near ground's grain, the cells a map stands on with their floor
+  textures, and each pixel's distance. Chunks are asked for through a callback, once a
+  picture. About 20 times faster than the Python; a frame of open land 4-5 times.
+- `clio_sky_draw`: the sky over open cells (`sky_picture`): the gradient (rows' colours from
+  CLIo), stars, drifting clouds and the ridges; the pixels the sun may reach are handed back
+  for CLIo to finish. About 9 times faster.
+- `tests/make_cases.py` writes `tests/cases.h` from CLIo's Python: a made-up land seen two
+  ways (with stamps, water and low detail) and two skies (one with a banded planet).
+
 ## 0.1.0
 
 The first release: the open land's noise and heights, and the braille of the dots views.

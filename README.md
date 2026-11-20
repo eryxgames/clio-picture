@@ -10,17 +10,27 @@ on a few values before it uses it, and keeps to the Python if anything differs.
 
 C99, no dependencies, Apache-2.0.
 
-## What it does (0.1)
+## What it does (0.2)
 
 | Function | CLIo's Python | Faster by |
 | --- | --- | --- |
-| `clio_hash`, `clio_value`, `clio_fbm` | `engine/land.py`: `_h`, `value`, `fbm` | - |
+| `clio_land_draw`: the open land's ground caster | `Land.cast` (`engine/land.py`) | about 20 times; a land frame 4-5 times |
+| `clio_sky_draw`: the sky over open cells | `sky_picture` (`engine/firstperson.py`), all but the sun's disc and glow | about 9 times |
 | `clio_land_raw`: a block of the land's heights | `Land.raw`, a chunk at a time in `Land.build` | about 4 times a chunk |
 | `clio_dots`: braille cells from pixels | `View.braille` (the `dots` and `dots-fill` views) | 4 to 7 times |
+| `clio_hash`, `clio_value`, `clio_fbm` | `engine/land.py`: `_h`, `value`, `fbm` | - |
 
-Next, in the order of the payoff: the open land's ground caster with its depth buffer, the
-rooms (walls, floor, ceiling, fog), triangles for 3D models, sprites. See
-`include/clio_picture.h` for the interface.
+A frame of open land in CLIo (E1M4, 150 columns) goes from 52 ms to 12 ms, in the dots view
+from 137 ms to 25 ms.
+
+The caster asks CLIo for each chunk of ground it needs, once a picture (`clio_chunk_fn`), so
+CLIo builds chunks exactly when its Python caster would. The haze at each distance needs
+`exp`, and the sky's gradient a power, so CLIo works those out and hands them in. The sun's
+disc and glow need a hypotenuse that Python works out its own way, so the sky hands back the
+pixels the sun may reach and CLIo finishes them.
+
+Next, in the order of the payoff: the rooms (walls, floor, ceiling, fog), triangles for 3D
+models, sprites. See `include/clio_picture.h` for the interface.
 
 ## Getting it
 
@@ -36,8 +46,11 @@ Releases have a zip for each machine CLIo runs on: `linux-x64`, `linux-arm64`,
 
 ```
 make            # build/libclio_picture.so (.dylib on macOS, clio_picture.dll with MinGW)
-make test       # and check it against CLIo's values
+make test       # and check it against CLIo's values (tests/cases.h)
 ```
+
+`tests/cases.h` holds what CLIo's Python draws for a made-up land and sky; after a change in
+CLIo's pictures, write it again with `python3 tests/make_cases.py PATH/TO/CLIo > tests/cases.h`.
 
 With Microsoft's compiler, from a Developer Command Prompt: `build.bat test`.
 
@@ -50,9 +63,10 @@ with `CLIO_PICTURE_LIB=/path/to/libclio_picture.so`, or copy it into CLIo's
 ## Rules for a new function
 
 - CLIo's Python is the reference: the same operations in the same order, `+ - * /`,
-  `floor`, `fabs` and comparisons only - nothing from libm that may round differently on
-  another machine (`pow`, `exp`, `sin`). Where the Python needs one of those, CLIo works
-  the values out and passes them in (the dots' `steps` are an example).
+  `floor`, `fmod`, `fabs` and comparisons only - nothing from libm that may round
+  differently on another machine (`pow`, `exp`, `sin`, `hypot`). Where the Python needs one
+  of those, CLIo works the values out and passes them in (the dots' `steps`, the haze at each
+  distance, the sky's gradient), or finishes those pixels itself (the sun).
 - Plain arrays in, plain arrays out: no Python objects, no callbacks per pixel.
 - A test in `tests/test_picture.c` with values from CLIo's Python, and one in CLIo's
   `tests/test_picture.py` that compares the two on many inputs.

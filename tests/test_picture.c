@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0
  * Copyright 2024-2026 Daniel Sandner
  *
- * The library against values CLIo's Python gives (engine/land.py), compared to the last bit. */
+ * The library against values CLIo's Python gives (engine/land.py, engine/firstperson.py), compared to the
+ * last bit. cases.h is written by make_cases.py. */
 #include "clio_picture.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* CLIo: Land with seed 4207, scale 30, warp 0.6, rough 0.5, ridges 0.25; raw(10, 20) and raw(12, 21) */
@@ -18,7 +20,161 @@ static const uint8_t PX[144] = {60, 60, 60, 60, 60, 60, 0, 0, 0, 2, 1, 1, 212, 1
 static const uint8_t WANT_DOTS[48] = {21, 2, 114, 114, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 71, 2, 145, 215, 115, 0, 0, 0, 253, 2, 213, 215, 161, 0, 0, 0, 189, 2, 145, 179, 215, 0, 0, 0, 247, 2, 186, 214, 182, 0, 0, 0};
 static const uint8_t WANT_FILL[48] = {0, 1, 0, 0, 0, 60, 60, 60, 0, 1, 0, 0, 0, 0, 0, 0, 71, 3, 127, 188, 101, 52, 29, 114, 184, 3, 148, 197, 90, 159, 100, 141, 184, 3, 62, 135, 116, 137, 38, 103, 71, 3, 115, 232, 129, 168, 73, 142};
 
+#include "cases.h"
+
 static int bad = 0;
+
+/* ---- the made-up land of make_cases.py: a chunk from formulas -------------------------------------- */
+static int64_t pmod(int64_t a, int64_t m) { int64_t r = a % m; return r < 0 ? r + m : r; }
+
+static clio_chunk made[64];
+static int64_t made_key[64][2];
+static int made_n = 0, asked = 0;
+
+static const clio_chunk *made_chunk(void *user, int64_t kx, int64_t ky)
+{
+    int i, x, y;
+    clio_chunk *ch;
+    (void)user;
+    asked++;
+    for (i = 0; i < made_n; i++)
+        if (made_key[i][0] == kx && made_key[i][1] == ky)
+            return &made[i];
+    if (made_n == 64)
+        return NULL;
+    ch = &made[made_n];
+    made_key[made_n][0] = kx;
+    made_key[made_n][1] = ky;
+    made_n++;
+    for (y = 0; y < 16; y++)
+        for (x = 0; x < 16; x++) {
+            int64_t X = kx * 16 + x, Y = ky * 16 + y;
+            int k = y * 16 + x;
+            ch->height[k] = 0.25 * (double)pmod(X * 3 + Y * 5, 17);
+            ch->kind[k] = (int16_t)(pmod(X * X + Y, 23) == 0 ? -2 : pmod(X + 2 * Y, 19) == 0 ? -1 : pmod(X + Y, 3));
+            ch->rgb[k] = ((uint32_t)((X * 37) & 255) << 16) | ((uint32_t)((Y * 53) & 255) << 8) |
+                         (uint32_t)(((X + Y) * 11) & 255);
+        }
+    return ch;
+}
+
+static const clio_chunk *no_chunk(void *user, int64_t kx, int64_t ky)
+{
+    (void)user;
+    (void)kx;
+    (void)ky;
+    return NULL;
+}
+
+static uint64_t fnv(uint64_t h, const void *data, size_t n)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    size_t i;
+    for (i = 0; i < n; i++)
+        h = (h ^ p[i]) * 0x100000001B3ULL;
+    return h;
+}
+
+/* little-endian bytes of a 32-bit and a 64-bit value, as Python's sums take them */
+static uint64_t fnv32(uint64_t h, uint32_t v)
+{
+    uint8_t b[4];
+    b[0] = (uint8_t)v; b[1] = (uint8_t)(v >> 8); b[2] = (uint8_t)(v >> 16); b[3] = (uint8_t)(v >> 24);
+    return fnv(h, b, 4);
+}
+
+static uint64_t fnv_double(uint64_t h, double d)
+{
+    uint64_t v;
+    uint8_t b[8];
+    int i;
+    memcpy(&v, &d, 8);
+    for (i = 0; i < 8; i++)
+        b[i] = (uint8_t)(v >> (8 * i));
+    return fnv(h, b, 8);
+}
+
+static void land_case(const char *what, const clio_ground *g, int sky_rows, uint64_t want)
+{
+    size_t n = (size_t)g->pw * g->ph, i;
+    uint32_t *rgb = (uint32_t *)malloc(n * 4);
+    double *depth = (double *)malloc(n * 8);
+    uint8_t *sky = (uint8_t *)malloc((size_t)g->pw * (sky_rows ? sky_rows : 1) * 3);
+    uint64_t h = 0xCBF29CE484222325ULL;
+    int x, y, r;
+    for (y = 0; y < sky_rows; y++)                   /* make_cases.sky_rows */
+        for (x = 0; x < g->pw; x++) {
+            uint8_t *p = sky + ((size_t)y * g->pw + x) * 3;
+            p[0] = (uint8_t)((x * 5 + y) & 255);
+            p[1] = (uint8_t)((y * 9) & 255);
+            p[2] = (uint8_t)((x * 3 + 100) & 255);
+        }
+    made_n = asked = 0;
+    r = clio_land_draw(g, made_chunk, NULL, sky, sky_rows, rgb, depth);
+    if (r != 0) {
+        printf("FAIL %s: %d\n", what, r);
+        bad++;
+    } else {
+        for (i = 0; i < n; i++)
+            h = fnv32(h, rgb[i]);
+        for (i = 0; i < n; i++)
+            h = fnv_double(h, depth[i]);
+        if (h != want) {
+            printf("FAIL %s: the picture differs from CLIo's\n", what);
+            bad++;
+        }
+        if (asked != made_n) {
+            printf("FAIL %s: a chunk asked for %d times over %d chunks\n", what, asked, made_n);
+            bad++;
+        }
+    }
+    if (clio_land_draw(g, no_chunk, NULL, sky, sky_rows, rgb, depth) != -2) {
+        printf("FAIL %s: no chunk is not stopped at\n", what);
+        bad++;
+    }
+    free(rgb);
+    free(depth);
+    free(sky);
+}
+
+static void sky_case(const char *what, const clio_sky *s, uint64_t want, uint64_t want_ridges, int spots, int first)
+{
+    size_t n = (size_t)s->pw * s->yh, i;
+    uint32_t *rgb = (uint32_t *)malloc(n * 4);
+    double *hs = (double *)malloc((size_t)(s->ridges ? s->ridges : 1) * s->pw * 8);
+    int32_t *px = (int32_t *)malloc(n * 4);
+    char *sunny = (char *)calloc(n, 1);
+    int got = -1, k;
+    uint64_t h = 0xCBF29CE484222325ULL, hr = 0xCBF29CE484222325ULL;
+    if (clio_sky_draw(s, rgb, hs, px, &got) != 0) {
+        printf("FAIL %s: no sky\n", what);
+        bad++;
+    } else {
+        if (got != spots || (spots && px[0] != first)) {
+            printf("FAIL %s: %d pixels left for the sun, CLIo leaves %d\n", what, got, spots);
+            bad++;
+        }
+        for (k = 0; k < got; k++)
+            sunny[px[k]] = 1;
+        for (i = 0; i < n; i++)
+            if (!sunny[i])
+                h = fnv32(h, rgb[i]);
+        for (i = 0; i < (size_t)s->ridges * s->pw; i++)
+            hr = fnv_double(hr, hs[i]);
+        if (h != want) {
+            printf("FAIL %s: the sky differs from CLIo's\n", what);
+            bad++;
+        }
+        if (hr != want_ridges) {
+            printf("FAIL %s: the ridges differ from CLIo's\n", what);
+            bad++;
+        }
+    }
+    free(rgb);
+    free(hs);
+    free(px);
+    free(sunny);
+}
 
 static void cells(const char *what, const uint8_t *got, const uint8_t *want, int n)
 {
@@ -82,6 +238,10 @@ int main(void)
             bad++;
         }
     }
+    land_case("land ahead", &LAND0, LAND0_SKY, LAND0_SUM);
+    land_case("land sideways, low detail", &LAND1, LAND1_SKY, LAND1_SUM);
+    sky_case("sky with stars, clouds, ridges", &SKY0, SKY0_SUM, SKY0_RIDGES_SUM, SKY0_SPOTS, SKY0_FIRST_SPOT);
+    sky_case("sky with a banded planet", &SKY1, SKY1_SUM, SKY1_RIDGES_SUM, SKY1_SPOTS, SKY1_FIRST_SPOT);
     if (strcmp(clio_picture_version(), CLIO_PICTURE_VERSION) != 0) {
         printf("FAIL version\n");
         bad++;

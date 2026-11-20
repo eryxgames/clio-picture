@@ -9,7 +9,8 @@
  * multiply-add (-ffp-contract=off, /fp:strict), as Python rounds them.
  *
  * 0.1: the land's noise - the hash of a lattice point, value noise, fractal noise (fBm) and a
- * block of the land's heights at once (CLIo's engine/land.py).
+ * block of the land's heights at once (CLIo's engine/land.py); braille cells from pixels.
+ * 0.2: the open land's ground caster (Land.draw).
  */
 #ifndef CLIO_PICTURE_H
 #define CLIO_PICTURE_H
@@ -32,9 +33,9 @@ extern "C" {
 #  define CLIO_PICTURE_API __attribute__((visibility("default")))
 #endif
 
-#define CLIO_PICTURE_VERSION "0.1.0"
+#define CLIO_PICTURE_VERSION "0.2.0"
 
-/* "0.1.0" */
+/* "0.2.0" */
 CLIO_PICTURE_API const char *clio_picture_version(void);
 
 /* A lattice point's value, 0..1 (land._h): a 32-bit hash of the point and the seed. */
@@ -58,6 +59,76 @@ typedef struct clio_land {
 /* The raw height, 0..1, of each cell (x, y) for x0 <= x < x0 + w, y0 <= y < y0 + h, row by row,
  * into out[w * h] (land.Land.raw). Returns 0, or -1 when w or h is not positive. */
 CLIO_PICTURE_API int clio_land_raw(const clio_land *land, int64_t x0, int64_t y0, int w, int h, double *out);
+
+/* ---- 0.2: the open land's ground, as CLIo's engine/land.py Land.draw casts it ---------------------- */
+
+/* One 16 x 16 chunk of the land, cell (x & 15, y & 15) at [(y & 15) * 16 + (x & 15)]: its height (the
+ * water's top where it is under), its colour lit by the sun (0xRRGGBB), and its kind (a biome's index,
+ * -1 shallow water, -2 deep). */
+typedef struct clio_chunk {
+    double height[256];
+    uint32_t rgb[256];
+    int16_t kind[256];
+} clio_chunk;
+
+/* Hands the caster the chunk (kx, ky) - built if it was not - or NULL to stop. Called once a chunk a
+ * picture; the chunk must stay as it is until clio_land_draw returns. */
+typedef const clio_chunk *(*clio_chunk_fn)(void *user, int64_t kx, int64_t ky);
+
+typedef struct clio_ground {
+    int pw, ph;                 /* the picture, in pixels */
+    int yh;                     /* the horizon's pixel row */
+    int step;                   /* 1: a ray a pixel column; 2: a ray every other column (low detail) */
+    double half, lw, tall, z0;  /* the middle column, a cell's width and a wall's height at distance 0, the
+                                   eye's distance behind the picture */
+    double cx, cy, fx, fy, rx, ry;  /* the camera: where, ahead, to the right */
+    double eye;                 /* the eye's height (the ground's units) */
+    double base;                /* the height of cells a map stands on (stamped) */
+    int64_t phase;              /* the beat: the water's glints */
+    uint32_t haze;              /* 0xRRGGBB: the far land fades into it */
+    int steps;                  /* how many distances the rays step through, near to far */
+    const double *d;            /* the distances */
+    const double *fog;          /* at each: 1 - exp(-d / haze distance) (worked out by the caller) */
+    int stamps;                 /* cells a map stands on: */
+    const int64_t *stamp_xy;    /*   x, y of each (2 a stamp) */
+    const int32_t *stamp_tex;   /*   its floor's texture, or -1: plain (a checker) */
+    const int32_t *tex_w, *tex_h, *tex_at;   /* each texture's size and first texel in texels */
+    const uint32_t *texels;     /* 0xRRGGBB */
+} clio_ground;
+
+/* The ground and the sky as the player sees them. sky: sky_rows rows of pw pixels, 3 bytes each (r g b),
+ * the sky above (rows below it are haze). Out: rgb, pw * ph pixels (0xRRGGBB), and depth, each pixel's
+ * distance (1e9 where no ground is). Returns 0; -1 for bad numbers; -2 when chunk() gave NULL; -3 out of
+ * memory. */
+CLIO_PICTURE_API int clio_land_draw(const clio_ground *g, clio_chunk_fn chunk, void *user,
+                                    const uint8_t *sky, int sky_rows, uint32_t *rgb, double *depth);
+
+/* ---- 0.2: the sky over open cells, as CLIo's engine/firstperson.py sky_picture paints it ------------ */
+
+typedef struct clio_sky {
+    int pw, yh;                 /* the picture's width, the horizon's row: yh rows of sky */
+    double f;                   /* the way the player faces, 0..3 (a quarter turn is the picture's width) */
+    double lateral;             /* how far he has moved sideways (near ridges move a little) */
+    int64_t phase;              /* the beat: stars twinkle, clouds drift */
+    const uint32_t *base;       /* yh: each row's colour before anything is on it (the gradient) */
+    double stars;               /* how many stars, 0: none */
+    int clouds;                 /* 0: none */
+    uint32_t cloud_rgb;
+    double cloud_amount;
+    int ridges;                 /* the hills' outlines on the horizon, far to near: */
+    const uint32_t *ridge_rgb;
+    const double *ridge_height, *ridge_near, *ridge_rough;
+    const int64_t *ridge_seed;
+    int sun;                    /* 0: none; else the disc and glow are the caller's to draw (they need hypot): */
+    double sun_at, sun_height, sun_size, sun_glow;
+} clio_sky;
+
+/* The sky, yh rows of pw pixels (0xRRGGBB) into rgb; ridge_rows (ridges * pw, may be NULL) gets each ridge's
+ * height in rows at each column. Pixels the sun may reach are left before the sun and before the ridges -
+ * their indices (y * pw + x) go into sun_px (room for pw * yh) and their number into *sun_n - so that the
+ * caller draws the disc, its glow and then the ridges there. Returns 0, or -1 for bad numbers. */
+CLIO_PICTURE_API int clio_sky_draw(const clio_sky *s, uint32_t *rgb, double *ridge_rows, int32_t *sun_px,
+                                   int *sun_n);
 
 /* Braille cells from pixels (CLIo's dots and dots-fill styles, engine/firstperson.py View.braille).
  * A cell is 2 pixels across and 4 down; its dots are Unicode braille U+2800 + bits. */
