@@ -10,7 +10,8 @@
  *
  * 0.1: the land's noise - the hash of a lattice point, value noise, fractal noise (fBm) and a
  * block of the land's heights at once (CLIo's engine/land.py); braille cells from pixels.
- * 0.2: the open land's ground caster (Land.draw).
+ * 0.2: the open land's ground caster (Land.draw) and its sky (sky_picture).
+ * 0.3: the rooms' floor and ceiling (View._backdrop).
  */
 #ifndef CLIO_PICTURE_H
 #define CLIO_PICTURE_H
@@ -33,9 +34,9 @@ extern "C" {
 #  define CLIO_PICTURE_API __attribute__((visibility("default")))
 #endif
 
-#define CLIO_PICTURE_VERSION "0.2.0"
+#define CLIO_PICTURE_VERSION "0.3.0"
 
-/* "0.2.0" */
+/* "0.3.0" */
 CLIO_PICTURE_API const char *clio_picture_version(void);
 
 /* A lattice point's value, 0..1 (land._h): a 32-bit hash of the point and the seed. */
@@ -129,6 +130,52 @@ typedef struct clio_sky {
  * caller draws the disc, its glow and then the ridges there. Returns 0, or -1 for bad numbers. */
 CLIO_PICTURE_API int clio_sky_draw(const clio_sky *s, uint32_t *rgb, double *ridge_rows, int32_t *sun_px,
                                    int *sun_n);
+
+/* ---- 0.3: the rooms' floor and ceiling, as CLIo's engine/firstperson.py View._backdrop draws them ---- */
+
+#define CLIO_CLEAR 0xFFFFFFFFu  /* a texel that shows what is under it */
+
+/* What is set in a floor (View.fixture), in CLIo's order of precedence */
+enum {
+    CLIO_FLOOR_PLAIN = 0, CLIO_FLOOR_PLATE = 1, CLIO_FLOOR_PLATE_DOWN = 2, CLIO_FLOOR_SUNK = 3,
+    CLIO_FLOOR_TELEPORT = 4,    /* left to the caller (its rings need a hypotenuse) */
+    CLIO_FLOOR_LIFT = 5, CLIO_FLOOR_BELT = 6, CLIO_FLOOR_OIL = 7, CLIO_FLOOR_SLICK = 8, CLIO_FLOOR_SCORCHED = 9,
+    CLIO_CEILING_SKY = 10       /* a ceiling open to the sky */
+};
+
+typedef struct clio_room_cell {
+    const uint32_t *tex;        /* the floor's or ceiling's tile (0xRRGGBB or CLIO_CLEAR), row by row; NULL: none */
+    int32_t tex_w, tex_h;
+    int32_t kind;               /* CLIO_FLOOR_* for a floor, 0 or CLIO_CEILING_SKY for a ceiling */
+    int32_t belt;               /* a belt's way: 0 north, 1 east, 2 south, 3 west */
+    int32_t toxic, fire;        /* the floor is toxic; it burns */
+    int32_t mark;               /* 0 none, 1 fire is coming (hatched), 2 burning now */
+    int64_t x, y;               /* the cell's own place (oil and scorch patterns use it) */
+} clio_room_cell;
+
+/* Fills *out for the cell (ix, iy): its floor (what = 0) or its ceiling (what = 1). Asked once a cell a
+ * picture, in the order CLIo's Python asks; returns 0, or anything else to stop. A tile must stay as it is
+ * until clio_room_draw returns. */
+typedef int (*clio_room_cell_fn)(void *user, int what, int64_t ix, int64_t iy, clio_room_cell *out);
+
+typedef struct clio_room {
+    int pw, ph, yh;             /* the picture in pixels, the horizon's row */
+    int step;                   /* 1, or 2: every other column, each drawn twice */
+    double half;                /* the middle column */
+    double cx, cy, fx, fy, rx, ry;  /* the camera: where, ahead, to the right */
+    int64_t phase;
+    const int8_t *row_kind;     /* ph: 0 floor, 1 ceiling, 2 too far (haze) */
+    const double *row_z;        /* ph: the distance each row sees (log(t) / log(0.64), worked out by the caller) */
+    const double *row_fog;      /* ph: how much of a colour is left there (0.18 + 0.82 t^0.75) */
+    const double *row_span;     /* ph: a cell's width there, in pixels */
+    const uint8_t *sky;         /* the sky's rows (yh rows of pw pixels, r g b), NULL when there is none */
+} clio_room;
+
+/* The floor and the ceiling, ph rows of pw pixels (0xRRGGBB) into rgb. Floor pixels of a teleporter with
+ * no tile over them are left to the caller: their indices (y * pw + x) go into later (room for pw * ph),
+ * their number into *later_n. Returns 0; -1 for bad numbers; -2 when cell() stopped; -3 out of memory. */
+CLIO_PICTURE_API int clio_room_draw(const clio_room *r, clio_room_cell_fn cell, void *user, uint32_t *rgb,
+                                    int32_t *later, int *later_n);
 
 /* Braille cells from pixels (CLIo's dots and dots-fill styles, engine/firstperson.py View.braille).
  * A cell is 2 pixels across and 4 down; its dots are Unicode braille U+2800 + bits. */

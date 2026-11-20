@@ -20,7 +20,7 @@ else
   SHARED := -shared
 endif
 
-SRC := src/noise.c src/dots.c src/ground.c src/sky.c
+SRC := src/noise.c src/dots.c src/ground.c src/sky.c src/room.c
 HDR := include/clio_picture.h
 
 all: $(LIB)

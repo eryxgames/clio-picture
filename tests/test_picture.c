@@ -137,6 +137,97 @@ static void land_case(const char *what, const clio_ground *g, int sky_rows, uint
     free(sky);
 }
 
+/* ---- the made-up room of make_cases.py --------------------------------------------------------------- */
+#define CLR CLIO_CLEAR
+static const uint32_t TILE_A[6] = {0xC82828u, CLR, 0x28C828u, CLR, 0x2828C8u, 0x5A5A5Au};
+static const uint32_t TILE_B[4] = {0x0A0A0Au, 0xFAFA00u, 0x00FAFAu, CLR};
+
+static int room_cell(void *user, int what, int64_t ix, int64_t iy, clio_room_cell *out)
+{
+    int64_t k, m;
+    (void)user;
+    m = pmod(ix * 3 + iy, 19);
+    if (pmod(ix * 5 + iy * 3, 31) == 0) {               /* no cell: the plain floor, the plain ceiling */
+        if (what == 0)
+            out->mark = m == 1 ? 1 : m == 2 ? 2 : 0;
+        return 0;
+    }
+    if (what == 1) {
+        if (pmod(ix * iy, 17) == 5)
+            out->kind = CLIO_CEILING_SKY;
+        else if (pmod(ix + iy, 7) == 0) {
+            out->tex = TILE_B;
+            out->tex_w = out->tex_h = 2;
+        }
+        return 0;
+    }
+    k = pmod(ix * 7 + iy * 11, 23);
+    out->kind = k == 0 ? ((ix & 1) ? CLIO_FLOOR_PLATE_DOWN : CLIO_FLOOR_PLATE) : k == 1 ? CLIO_FLOOR_SUNK :
+                k == 2 ? CLIO_FLOOR_TELEPORT : k == 3 ? CLIO_FLOOR_LIFT : k == 4 ? CLIO_FLOOR_BELT :
+                k == 5 ? CLIO_FLOOR_OIL : k == 6 ? CLIO_FLOOR_SLICK : k == 7 ? CLIO_FLOOR_SCORCHED : CLIO_FLOOR_PLAIN;
+    out->belt = (int32_t)pmod(ix + iy, 4);
+    out->toxic = pmod(ix + 2 * iy, 13) == 0;
+    out->fire = pmod(ix + iy * 5, 11) == 0;
+    out->mark = m == 1 ? 1 : m == 2 ? 2 : 0;
+    if (pmod(ix - iy, 9) == 0) {
+        out->tex = TILE_A;
+        out->tex_w = 3;
+        out->tex_h = 2;
+    }
+    return 0;
+}
+
+static int room_stop(void *user, int what, int64_t ix, int64_t iy, clio_room_cell *out)
+{
+    (void)user;
+    (void)what;
+    (void)ix;
+    (void)iy;
+    (void)out;
+    return 1;
+}
+
+static void room_case(const char *what, const clio_room *r, uint64_t want, int later, int first)
+{
+    size_t n = (size_t)r->pw * r->ph, i;
+    uint32_t *rgb = (uint32_t *)malloc(n * 4);
+    int32_t *px = (int32_t *)malloc(n * 4);
+    char *mine = (char *)calloc(n, 1);
+    int got = -1, k, res;
+    uint64_t h = 0xCBF29CE484222325ULL;
+    res = clio_room_draw(r, room_cell, NULL, rgb, px, &got);
+    if (res != 0) {
+        printf("FAIL %s: %d\n", what, res);
+        bad++;
+    } else {
+        for (k = 0; k < got; k++) {                 /* each left pixel, and its twin at low detail */
+            mine[px[k]] = 1;
+            if (r->step == 2 && (px[k] % r->pw) + 1 < r->pw)
+                mine[px[k] + 1] = 1;
+        }
+        for (k = 0, i = 0; i < n; i++)
+            k += mine[i];
+        if (k != later || (got && px[0] != first)) {
+            printf("FAIL %s: %d pixels left for teleporters, CLIo has %d\n", what, k, later);
+            bad++;
+        }
+        for (i = 0; i < n; i++)
+            if (!mine[i])
+                h = fnv32(h, rgb[i]);
+        if (h != want) {
+            printf("FAIL %s: the floor and ceiling differ from CLIo's\n", what);
+            bad++;
+        }
+    }
+    if (clio_room_draw(r, room_stop, NULL, rgb, px, &got) != -2) {
+        printf("FAIL %s: a stop is not stopped at\n", what);
+        bad++;
+    }
+    free(rgb);
+    free(px);
+    free(mine);
+}
+
 static void sky_case(const char *what, const clio_sky *s, uint64_t want, uint64_t want_ridges, int spots, int first)
 {
     size_t n = (size_t)s->pw * s->yh, i;
@@ -240,6 +331,8 @@ int main(void)
     }
     land_case("land ahead", &LAND0, LAND0_SKY, LAND0_SUM);
     land_case("land sideways, low detail", &LAND1, LAND1_SKY, LAND1_SUM);
+    room_case("room ahead", &ROOM0, ROOM0_SUM, ROOM0_LATER, ROOM0_FIRST_LATER);
+    room_case("room sideways, low detail", &ROOM1, ROOM1_SUM, ROOM1_LATER, ROOM1_FIRST_LATER);
     sky_case("sky with stars, clouds, ridges", &SKY0, SKY0_SUM, SKY0_RIDGES_SUM, SKY0_SPOTS, SKY0_FIRST_SPOT);
     sky_case("sky with a banded planet", &SKY1, SKY1_SUM, SKY1_RIDGES_SUM, SKY1_SPOTS, SKY1_FIRST_SPOT);
     if (strcmp(clio_picture_version(), CLIO_PICTURE_VERSION) != 0) {

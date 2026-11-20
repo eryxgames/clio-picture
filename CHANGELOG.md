@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org). Each follows CLIo's Python, which
 is the reference.
 
+## 0.3.0
+
+The rooms' floor and ceiling.
+
+- `clio_room_draw`: CLIo's `View._backdrop` - for each pixel row the distance it sees and
+  its fog (worked out by CLIo), for each pixel the cell under or over it: its tile, what is
+  set in the floor (pressure plates up or down, sunk crates, lifts, belts each way, oil,
+  slick coolant, scorch), toxic water, fire, the marks of fire to come, the plain floor and
+  ceiling with their lights, and the sky where a ceiling is open. Cells are asked for
+  through a callback, once a picture, in the order CLIo asks; the teleporters' rings are
+  handed back for CLIo to finish. A room frame in CLIo 1.5 times faster, in dots 2.5 times.
+- `tests/cases.h`: two made-up rooms with every kind of floor, seen ahead and sideways at
+  low detail.
+
 ## 0.2.0
 
 The open land's picture: the ground and the sky.

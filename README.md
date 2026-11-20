@@ -10,10 +10,11 @@ on a few values before it uses it, and keeps to the Python if anything differs.
 
 C99, no dependencies, Apache-2.0.
 
-## What it does (0.2)
+## What it does (0.3)
 
 | Function | CLIo's Python | Faster by |
 | --- | --- | --- |
+| `clio_room_draw`: the rooms' floor and ceiling | `View._backdrop` (`engine/firstperson.py`), all but the teleporters' rings | a room frame 1.5 times, in dots 2.5 times |
 | `clio_land_draw`: the open land's ground caster | `Land.cast` (`engine/land.py`) | about 20 times; a land frame 4-5 times |
 | `clio_sky_draw`: the sky over open cells | `sky_picture` (`engine/firstperson.py`), all but the sun's disc and glow | about 9 times |
 | `clio_land_raw`: a block of the land's heights | `Land.raw`, a chunk at a time in `Land.build` | about 4 times a chunk |
@@ -21,16 +22,20 @@ C99, no dependencies, Apache-2.0.
 | `clio_hash`, `clio_value`, `clio_fbm` | `engine/land.py`: `_h`, `value`, `fbm` | - |
 
 A frame of open land in CLIo (E1M4, 150 columns) goes from 52 ms to 12 ms, in the dots view
-from 137 ms to 25 ms.
+from 137 ms to 25 ms; a room (E1M1) from 8.5 to 5.8 ms, in dots from 33 to 13 ms.
 
 The caster asks CLIo for each chunk of ground it needs, once a picture (`clio_chunk_fn`), so
-CLIo builds chunks exactly when its Python caster would. The haze at each distance needs
+CLIo builds chunks exactly when its Python caster would. The rooms ask for each cell's floor
+and ceiling the same way (`clio_room_cell_fn`), in the order the Python asks, since in a world
+without end looking at a cell can load it. The haze at each distance needs
 `exp`, and the sky's gradient a power, so CLIo works those out and hands them in. The sun's
 disc and glow need a hypotenuse that Python works out its own way, so the sky hands back the
-pixels the sun may reach and CLIo finishes them.
+pixels the sun may reach and CLIo finishes them; the rooms do the same with the teleporters'
+rings.
 
-Next, in the order of the payoff: the rooms (walls, floor, ceiling, fog), triangles for 3D
-models, sprites. See `include/clio_picture.h` for the interface.
+Next, in the order of the payoff: the walls, the sprites and the triangles of 3D models - which
+CLIo draws in turns, nearest last, so they wait for a frame kept in the library from the
+floor to the braille. See `include/clio_picture.h` for the interface.
 
 ## Getting it
 
