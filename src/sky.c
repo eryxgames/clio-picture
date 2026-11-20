@@ -24,16 +24,13 @@ static double noise(int64_t i, int64_t j, int64_t k)
     return (double)((h ^ (h >> 16)) & 0xFFFFu) / 65536.0;
 }
 
-/* Python's float % 1.0 */
+/* Python's float % 1.0. Python takes fmod (exact) and adds 1 to a negative one (one rounding); t - floor(t)
+ * is that same number with that same one rounding, and +0.0 for whole t (-0.0 too), as Python's is. Not fmod
+ * itself: glibc 2.38 gave it a new symbol version, and a library built on a new Linux would not load on an
+ * older one. */
 static double mod1(double t)
 {
-    double m = fmod(t, 1.0);
-    if (m != 0.0) {
-        if (m < 0)
-            m += 1.0;
-    } else
-        m = 0.0;
-    return m;
+    return t - floor(t);
 }
 
 /* firstperson._wave: smooth noise round a circle, t in turns, n bumps a turn */

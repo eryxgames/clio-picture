@@ -25,20 +25,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { plat: linux-x64,           os: ubuntu-22.04,      kind: unix,    runs: true }
-          - { plat: linux-arm64,         os: ubuntu-22.04-arm,  kind: unix,    runs: true }
-          - { plat: macos-universal,     os: macos-14,          kind: unix,    runs: true }
+          - { plat: linux-x64,           os: ubuntu-24.04,      kind: unix,    runs: true }
+          - { plat: linux-arm64,         os: ubuntu-24.04-arm,  kind: unix,    runs: true }
+          - { plat: macos-universal,     os: macos-15,          kind: unix,    runs: true }
           - { plat: windows-x64,         os: windows-2022,      kind: msvc,    runs: true,  arch: x64 }
           - { plat: windows-arm64,       os: windows-2022,      kind: msvc,    runs: false, arch: amd64_arm64 }
-          - { plat: android-arm64-v8a,   os: ubuntu-22.04,      kind: android, runs: false, cc: aarch64-linux-android21-clang }
-          - { plat: android-armeabi-v7a, os: ubuntu-22.04,      kind: android, runs: false, cc: armv7a-linux-androideabi21-clang }
-          - { plat: android-x86_64,      os: ubuntu-22.04,      kind: android, runs: false, cc: x86_64-linux-android21-clang }
+          - { plat: android-arm64-v8a,   os: ubuntu-24.04,      kind: android, runs: false, cc: aarch64-linux-android21-clang }
+          - { plat: android-armeabi-v7a, os: ubuntu-24.04,      kind: android, runs: false, cc: armv7a-linux-androideabi21-clang }
+          - { plat: android-x86_64,      os: ubuntu-24.04,      kind: android, runs: false, cc: x86_64-linux-android21-clang }
     steps:
       - uses: actions/checkout@v4
 
       - name: Build and test (Linux)
         if: matrix.kind == 'unix' && startsWith(matrix.plat, 'linux')
-        run: make test all
+        run: |
+          make test all
+          # it must load on older Linux too: no glibc symbol newer than 2.17
+          need=$(objdump -T build/libclio_picture.so | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -1)
+          echo "needs $need"
+          test "$(printf '%s\nGLIBC_2.17\n' "$need" | sort -V | tail -1)" = GLIBC_2.17
 
       - name: Build and test (macOS, Intel and Apple silicon in one)
         if: matrix.kind == 'unix' && startsWith(matrix.plat, 'macos')
@@ -114,7 +119,7 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Tag matches the version and the changelog

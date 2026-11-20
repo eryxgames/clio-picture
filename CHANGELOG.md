@@ -17,6 +17,8 @@ The open land's picture: the ground and the sky.
   for CLIo to finish. About 9 times faster.
 - `tests/make_cases.py` writes `tests/cases.h` from CLIo's Python: a made-up land seen two
   ways (with stamps, water and low detail) and two skies (one with a banded planet).
+- The Linux builds need nothing newer than glibc 2.17 (checked in the workflow), so they load
+  on older distributions too. Builds run on GitHub's current runners (Ubuntu 24.04, macOS 15).
 
 ## 0.1.0
 

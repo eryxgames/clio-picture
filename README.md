@@ -63,8 +63,10 @@ with `CLIO_PICTURE_LIB=/path/to/libclio_picture.so`, or copy it into CLIo's
 ## Rules for a new function
 
 - CLIo's Python is the reference: the same operations in the same order, `+ - * /`,
-  `floor`, `fmod`, `fabs` and comparisons only - nothing from libm that may round
-  differently on another machine (`pow`, `exp`, `sin`, `hypot`). Where the Python needs one
+  `floor`, `fabs` and comparisons only - nothing from libm that may round differently on
+  another machine (`pow`, `exp`, `sin`, `hypot`), and no `fmod` (glibc 2.38 gave it a new
+  symbol version, so a library built on a new Linux would not load on an older one; the
+  workflow checks that the Linux builds need nothing newer than glibc 2.17). Where the Python needs one
   of those, CLIo works the values out and passes them in (the dots' `steps`, the haze at each
   distance, the sky's gradient), or finishes those pixels itself (the sun).
 - Plain arrays in, plain arrays out: no Python objects, no callbacks per pixel.
