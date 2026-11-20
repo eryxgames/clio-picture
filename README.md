@@ -10,10 +10,11 @@ on a few values before it uses it, and keeps to the Python if anything differs.
 
 C99, no dependencies, Apache-2.0.
 
-## What it does (0.3)
+## What it does (0.4)
 
 | Function | CLIo's Python | Faster by |
 | --- | --- | --- |
+| `clio_frame_*`: a frame kept here - walls, pictures, shadows, models' triangles, colour changes, hurt, shaking, the cockpit - and `clio_dots32` from it | `View.render` (`engine/firstperson.py`) | a room frame 2-2.5 times, in dots 6-7 times (all of 0.4) |
 | `clio_room_draw`: the rooms' floor and ceiling | `View._backdrop` (`engine/firstperson.py`), all but the teleporters' rings | a room frame 1.5 times, in dots 2.5 times |
 | `clio_land_draw`: the open land's ground caster | `Land.cast` (`engine/land.py`) | about 20 times; a land frame 4-5 times |
 | `clio_sky_draw`: the sky over open cells | `sky_picture` (`engine/firstperson.py`), all but the sun's disc and glow | about 9 times |
@@ -21,8 +22,21 @@ C99, no dependencies, Apache-2.0.
 | `clio_dots`: braille cells from pixels | `View.braille` (the `dots` and `dots-fill` views) | 4 to 7 times |
 | `clio_hash`, `clio_value`, `clio_fbm` | `engine/land.py`: `_h`, `value`, `fbm` | - |
 
-A frame of open land in CLIo (E1M4, 150 columns) goes from 52 ms to 12 ms, in the dots view
-from 137 ms to 25 ms; a room (E1M1) from 8.5 to 5.8 ms, in dots from 33 to 13 ms.
+Frames along the bot's own game of each level, 150 x 34 characters, in CLIo (measured on a
+cloud x86-64 machine):
+
+| Level | Pixel: Python | Pixel: 0.4 | Dots: Python | Dots: 0.4 |
+| --- | --- | --- | --- | --- |
+| E1M1 (rooms) | 10.3 ms | 4.6 ms | 42.6 ms | 6.0 ms |
+| E1M2 (rooms, a vehicle) | 10.2 ms | 4.9 ms | 38.3 ms | 5.8 ms |
+| E1M3 (rooms, sky, models) | 34.2 ms | 17.6 ms | 89.0 ms | 23.4 ms |
+| E1M4 (open land, models) | 75.1 ms | 16.1 ms | 141.1 ms | 20.6 ms |
+| E1M9 (belts, oil, fire) | 10.6 ms | 4.3 ms | 40.1 ms | 6.2 ms |
+| SIM-1 (a land without end) | 65.3 ms | 8.9 ms | 128.7 ms | 11.5 ms |
+| SIM-4 (squads) | 10.4 ms | 4.6 ms | 37.3 ms | 6.5 ms |
+
+What is left is mostly the models' shading (`model.pbr`): it needs `pow`, so it is the next
+step, with a check that the library's `pow` is the one CLIo's Python uses.
 
 The caster asks CLIo for each chunk of ground it needs, once a picture (`clio_chunk_fn`), so
 CLIo builds chunks exactly when its Python caster would. The rooms ask for each cell's floor
@@ -33,9 +47,12 @@ disc and glow need a hypotenuse that Python works out its own way, so the sky ha
 pixels the sun may reach and CLIo finishes them; the rooms do the same with the teleporters'
 rings.
 
-Next, in the order of the payoff: the walls, the sprites and the triangles of 3D models - which
-CLIo draws in turns, nearest last, so they wait for a frame kept in the library from the
-floor to the braille. See `include/clio_picture.h` for the interface.
+From 0.4 the picture stays in the library from the floor to the cells (`clio_frame`, owned by
+CLIo): CLIo still decides what is drawn where, nearest last, and asks the library to draw
+each wall, picture and triangle into the frame; what the library has no call for (a glow, a
+blast) CLIo draws through rows that read and write the frame's pixels.
+
+Next: the models' shading and projection (`View.draw_model`, `model.pbr`). See `include/clio_picture.h` for the interface.
 
 ## Getting it
 
@@ -54,7 +71,8 @@ make            # build/libclio_picture.so (.dylib on macOS, clio_picture.dll wi
 make test       # and check it against CLIo's values (tests/cases.h)
 ```
 
-`tests/cases.h` holds what CLIo's Python draws for a made-up land and sky; after a change in
+`tests/cases.h` holds what CLIo's Python draws for a made-up land, sky and rooms, and the
+calls CLIo makes on a frame (recorded) with what its Python draws for the same; after a change in
 CLIo's pictures, write it again with `python3 tests/make_cases.py PATH/TO/CLIo > tests/cases.h`.
 
 With Microsoft's compiler, from a Developer Command Prompt: `build.bat test`.

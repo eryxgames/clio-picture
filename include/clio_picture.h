@@ -12,6 +12,8 @@
  * block of the land's heights at once (CLIo's engine/land.py); braille cells from pixels.
  * 0.2: the open land's ground caster (Land.draw) and its sky (sky_picture).
  * 0.3: the rooms' floor and ceiling (View._backdrop).
+ * 0.4: a frame kept here from the floor to the cells: walls, pictures, shadows, models' triangles, colour
+ *      changes, hurt, shaking, the cockpit, and the braille read straight from it.
  */
 #ifndef CLIO_PICTURE_H
 #define CLIO_PICTURE_H
@@ -34,9 +36,9 @@ extern "C" {
 #  define CLIO_PICTURE_API __attribute__((visibility("default")))
 #endif
 
-#define CLIO_PICTURE_VERSION "0.3.0"
+#define CLIO_PICTURE_VERSION "0.4.0"
 
-/* "0.3.0" */
+/* "0.4.0" */
 CLIO_PICTURE_API const char *clio_picture_version(void);
 
 /* A lattice point's value, 0..1 (land._h): a 32-bit hash of the point and the seed. */
@@ -177,6 +179,90 @@ typedef struct clio_room {
 CLIO_PICTURE_API int clio_room_draw(const clio_room *r, clio_room_cell_fn cell, void *user, uint32_t *rgb,
                                     int32_t *later, int *later_n);
 
+/* ---- 0.4: a frame kept here from the floor to the cells ---------------------------------------------- */
+
+/* CLIo's picture of a first-person view, owned by the caller: its pixels, and in open land each pixel's
+ * distance. Every drawing call below follows the rule of CLIo's Python: a pixel is written only where the
+ * land there is further off than what is drawn now (depth > cur_z), when there is a depth. */
+typedef struct clio_frame {
+    int pw, ph;             /* pixels */
+    int sx, sy;             /* pixels to a character cell */
+    uint32_t *rgb;          /* pw * ph, 0xRRGGBB */
+    double *depth;          /* pw * ph, or NULL: no test (rooms) */
+    double cur_z;           /* how far off what is drawn now is */
+    double *cover;          /* (ph / sy) * (pw / sx): the nearest wall or thing over each cell, 99 where none */
+    double *zbuf;           /* pw * ph: a model's own depth while it is drawn */
+    uint32_t *zgen;         /* pw * ph: which model wrote zbuf there */
+    uint32_t gen;           /* the model being drawn */
+} clio_frame;
+
+/* After clio_land_draw into the frame: the cells the land covers (View.cover), from every other column of
+ * each row's pixels at their depth. */
+CLIO_PICTURE_API void clio_frame_land_cover(clio_frame *f);
+
+/* A wall's face towards the player (View.front_face): pixels X0..X1-1, Y0..Y1-1 of the tile (tw x th
+ * texels, CLIO_CLEAR see-through) laid over x0 + w, y0 + h on the picture, opened that far (a door), each
+ * colour times fog; the cells it covers marked at cover_dist. */
+CLIO_PICTURE_API void clio_frame_front(clio_frame *f, const uint32_t *tex, int tw, int th, int X0, int X1, int Y0,
+                                       int Y1, double x0, double w, double y0, double h, double opened, double fog,
+                                       double cover_dist);
+
+/* A wall's side face (View.side_face), column by column: for each of n columns xs[i], its distance zc[i] and
+ * fog[i] (worked out by the caller); t = (x + 0.5 - half) / span; v = zc - (z - 0.5) along the tile. */
+CLIO_PICTURE_API void clio_frame_side(clio_frame *f, const uint32_t *tex, int tw, int th, int n, const int32_t *xs,
+                                      const double *zc, const double *fog, double half, double span, double yh,
+                                      double ch, double fs, double opened, double z);
+
+/* How a blitted picture is coloured (View.toner, and a monster's flash, tint and dissolving) */
+typedef struct clio_tone {
+    int kind;               /* 0: as drawn; 1: times fog; 2: into the haze by k */
+    double fog;
+    uint32_t haze;
+    double k;
+    double gone;            /* > 0: dissolving: a texel (i, j) goes where noise(int(i / step), int(j / step), id) < gone */
+    double step;
+    int64_t id;
+    int flash;              /* white */
+    int tinted;             /* mixed 0.6 towards tint first */
+    uint32_t tint;
+} clio_tone;
+
+/* A picture (nw x nh texels, CLIO_CLEAR see-through) scaled by s to sw x sh at (x0, y0) (View.blit); tone may be
+ * NULL; with mark, the cells drawn on are marked at dist. */
+CLIO_PICTURE_API void clio_frame_blit(clio_frame *f, const uint32_t *pic, int nw, int nh, int x0, int y0, double s,
+                                      int sw, int sh, const clio_tone *tone, int mark, double dist);
+
+/* Pixels x_from..x_to, y_from..y_to (inclusive, clipped) darkened: times k (a shadow) */
+CLIO_PICTURE_API void clio_frame_darken(clio_frame *f, int x_from, int x_to, int y_from, int y_to, double k);
+
+/* A model starts: its triangles hide each other by their own depth (model.raster's zbuf) */
+CLIO_PICTURE_API void clio_frame_model(clio_frame *f);
+
+/* A triangle (model.raster): pts x, y, depth for each corner; cols one colour (smooth 0, cols[0..2]) or one
+ * for each corner (smooth 1, cols[0..8]), as numbers 0..255 */
+CLIO_PICTURE_API void clio_frame_triangle(clio_frame *f, const double *pts, const double *cols, int smooth);
+
+/* The whole picture through a colour change (CLIo's recolour): 1 times k; 2 inverted (sudo); 3 the TTY
+ * goggles; 4 mixed towards colour by k */
+CLIO_PICTURE_API void clio_frame_recolour(clio_frame *f, int how, double k, uint32_t colour);
+
+/* Hurt: red from the edges (View.vignette); where: 0 all round, 1 left, 2 right, 3 back */
+CLIO_PICTURE_API void clio_frame_vignette(clio_frame *f, double hurt, int where);
+
+/* The picture shaken s pixels sideways, black coming in */
+CLIO_PICTURE_API void clio_frame_shake(clio_frame *f, int s);
+
+/* A cockpit's canopy (View.canopy): a frame across the top, two posts slanting in from the bottom corners */
+CLIO_PICTURE_API void clio_frame_canopy(clio_frame *f, uint32_t colour);
+
+/* Under the canopy (View.dashboard): the console h rows high from y0, x0..x1, two screens, and the fuel gauge
+ * gx0..gx1 at row gy lit up to lit (red when low) - the numbers worked out by the caller */
+CLIO_PICTURE_API void clio_frame_dashboard(clio_frame *f, uint32_t colour, int h, int y0, int x0, int x1, int gx0,
+                                           int gx1, int gy, int lit, int low);
+
+/* A machine's cage at the edges of the picture (View.cockpit without a canopy) */
+CLIO_PICTURE_API void clio_frame_cage(clio_frame *f);
+
 /* Braille cells from pixels (CLIo's dots and dots-fill styles, engine/firstperson.py View.braille).
  * A cell is 2 pixels across and 4 down; its dots are Unicode braille U+2800 + bits. */
 typedef struct clio_dots_style {
@@ -198,6 +284,10 @@ enum { CLIO_BLANK = 0, CLIO_PLAIN = 1, CLIO_DOTS = 2, CLIO_TWO = 3 };
  * Returns 0, or -1 when cols or rows is not positive. */
 CLIO_PICTURE_API int clio_dots(const uint8_t *rgb, int cols, int rows, const clio_dots_style *style,
                                uint8_t *out);
+
+/* clio_dots on a frame's pixels (0xRRGGBB, 2 * cols by 4 * rows) - 0.4 */
+CLIO_PICTURE_API int clio_dots32(const uint32_t *rgb, int cols, int rows, const clio_dots_style *style,
+                                 uint8_t *out);
 
 #ifdef __cplusplus
 }

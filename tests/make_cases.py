@@ -264,6 +264,239 @@ def room_cases():
     return out
 
 
+# ---- the frame (0.4): the calls CLIo makes, recorded, and what its Python draws for the same ---------- #
+class Recorder:
+    """Stands in for engine.picture.frame.Frame: keeps each call the View makes, with the cur_z of the moment."""
+    def __init__(self, view):
+        self.view, self.calls = view, []
+
+    def _keep(self, name, *args):
+        self.calls.append((name, self.view.cur_z) + args)
+
+    def front(self, *a):
+        self._keep("front", *a)
+
+    def side(self, tex, xs, zcs, fogs, *a):
+        self._keep("side", tex, list(xs), list(zcs), list(fogs), *a)
+
+    def blit(self, rows, x0, y0, s, sw, sh, tone, dist):
+        t = None if tone is None else (tone.kind, tone.fog, tone.haze, tone.k, tone.gone, tone.step, tone.id,
+                                       tone.flash, tone.tinted, tone.tint)
+        self._keep("blit", rows, x0, y0, s, sw, sh, t, dist)
+
+    def darken(self, *a):
+        self._keep("darken", *a)
+
+    def triangles(self, tris):
+        self._keep("triangles", list(tris))
+
+    def recolour(self, how, k=0.0, colour=(0, 0, 0)):
+        self._keep("recolour", how, k, colour)
+
+    def vignette(self, hurt, where):
+        self._keep("vignette", hurt, where)
+
+    def shake(self, s):
+        self._keep("shake", s)
+
+    def canopy(self, colour):
+        self._keep("canopy", colour)
+
+    def dashboard(self, *a):
+        self._keep("dashboard", *a)
+
+    def cage(self):
+        self._keep("cage")
+
+
+class RecPx(list):
+    frame = None
+
+
+def frame_pixel(x, y):
+    return ((x * 29 + y * 7) & 255, (x * 3 + y * 41) & 255, (x * x + y) & 255)
+
+
+def frame_depth(x, y):
+    return 0.5 + ((x * 7 + y * 3) % 11) * 0.4
+
+
+SPRITE = [[(250, 10, 10), None, (10, 250, 10), (10, 10, 250)], [None, (200, 200, 0), (0, 200, 200), None],
+          [(120, 60, 30), (30, 60, 120), None, (255, 255, 255)]]
+TRIS = [(((3.2, 1.1, 2.0), (14.7, 4.2, 2.5), (6.1, 12.9, 1.0)), (180, 90, 40)),
+        (((5.0, 2.0, 1.5), (16.0, 9.0, 0.5), (2.0, 14.0, 3.0)), [[250.0, 10.0, 10.0], [10.0, 250.0, 10.0], [10.0, 10.0, 250.5]]),
+        (((20.5, 0.5, 4.0), (23.0, 15.5, 4.0), (9.0, 8.0, 4.0)), (20, 200, 220)),
+        (((1.0, 1.0, 0.2), (1.0, 1.0, 0.2), (5.0, 5.0, 0.2)), (255, 255, 255))]
+
+
+class Vehicle:
+    fuel, fuel_max = 4, 30
+
+
+class CageLevel:
+    class player:
+        vehicle = type("V", (), {"vehicle": {}})()
+    sprites = {}
+
+    @staticmethod
+    def weapon_sprite():
+        return None
+
+
+def frame_scene(v, px, land, part):
+    """What CLIo's View does to a picture, call by call: in Python (px a list of rows) or recorded (px.frame)."""
+    from engine import model as model_mod
+    from engine.firstperson import _Tone
+    fr = getattr(px, "frame", None)
+
+    def tris(t):
+        if fr is not None:
+            fr.triangles(t)
+        else:
+            zbuf = {}
+            for pts, cols in t:
+                model_mod.raster(px, zbuf, v.PW, v.PH, pts, cols)
+    if part == "colours":
+        return frame_colours(v, px, fr)
+    tex = TILE_A
+    v.front_face(px, 0.3, 2.0, tex)
+    v.front_face(px, -1.0, 1.4, TILE_B, 0.4)
+    v.side_face(px, 1.2, 1.0, tex)
+    v.side_face(px, -1.3, 0.6, TILE_B, 0.25, True)
+    v.side_face(px, 2.1, 3.0, tex, 0.0, True)
+    v.cur_z = 1.3
+    v.blit(px, SPRITE, 2, 3, 2.5)
+    v.blit(px, SPRITE, -3, 9, 1.7, _Tone(0.6, (70, 80, 90) if land else None, 0.35), 1.1)
+    v.blit(px, SPRITE, 10, -2, 3.1, _Tone(0.8, None, 0.0, gone=0.4, step=3.1, mid=7, tint=(255, 0, 0)), 2.2)
+    v.blit(px, SPRITE, 15, 6, 1.0, _Tone(0.9, (10, 20, 30), 0.5, flash=True))
+    v.shadow(px, 11.3, 12.6, 9.0)
+    v.cur_z = 0.9
+    tris(TRIS)
+    v.cur_z = -1e9
+    v.cockpit(px, CageLevel, None)
+    v.canopy(px, (70, 76, 60))
+    v.dashboard(px, Vehicle(), (70, 76, 60))
+    return px
+
+
+def frame_colours(v, px, fr):
+    px = v.recolour(px, 1, 1.35, None, lambda c: firstperson.shade(c, 1.35))
+    px = v.recolour(px, 2, 0.0, None, lambda c: firstperson.mix(c, (255 - int(firstperson.lum(c)),) * 3, 0.85))
+    px = v.recolour(px, 3, 0.0, None, firstperson._goggled)
+    px = v.recolour(px, 4, 0.3, (255, 255, 255), lambda c: firstperson.mix(c, (255, 255, 255), 0.3))
+    for where in (None, "left", "right", "back"):
+        if fr is not None:
+            fr.vignette(0.5, where)
+        else:
+            v.vignette(px, 0.5, where)
+    for s in (2, -1):
+        if fr is not None:
+            fr.shake(s)
+        else:
+            black = (0, 0, 0)
+            px = [([black] * s + row[:-s]) if s > 0 else (row[-s:] + [black] * -s) for row in px]
+    return px
+
+
+def frame_cases():
+    from engine.land import DepthRow
+    out = []
+    for land, part in ((False, "drawing"), (True, "drawing"), (False, "colours")):
+        v = firstperson.View(24, 8, "pixel")
+        v.set_eye(None)
+        if land:
+            v.persp, v.air = 1.6, ((70, 80, 90), 30.0)
+        PW, PH = v.PW, v.PH
+        v.cover, v.cur_z = {}, -1e9
+        rows = [[frame_pixel(x, y) for x in range(PW)] for y in range(PH)]
+        if land:
+            rows = [DepthRow(r) for r in rows]
+            for y, r in enumerate(rows):
+                r.depth, r.view = [frame_depth(x, y) for x in range(PW)], v
+        px = frame_scene(v, rows, land, part)
+        h = 0xCBF29CE484222325
+        for r in px:
+            h = sum_rgb(h, r)
+        W, VR = PW // v.sx, PH // v.sy
+        h = sum_doubles(h, [v.cover.get((r, c), 99.0) for r in range(VR) for c in range(W)])
+        rec = firstperson.View(24, 8, "pixel")
+        rec.set_eye(None)
+        if land:
+            rec.persp, rec.air = 1.6, ((70, 80, 90), 30.0)
+        rec.cover, rec.cur_z = {}, -1e9
+        fake = RecPx([[frame_pixel(x, y) for x in range(PW)] for y in range(PH)])
+        fake.frame = Recorder(rec)
+        frame_scene(rec, fake, land, part)
+        out.append((PW, PH, rec.sx, rec.sy, land, fake.frame.calls, h))
+    return out
+
+
+def c_tex(rows):
+    return "{%s}" % ", ".join("0x%06Xu" % u32(c) if c is not None else "CLIO_CLEAR" for r in rows for c in r)
+
+
+def frame_calls_c(i, calls):
+    """A C function making the recorded calls on a frame."""
+    lines, decl = [], []
+    for k, call in enumerate(calls):
+        name, cur_z = call[0], call[1]
+        a = call[2:]
+        lines.append("    f->cur_z = %r;" % float(cur_z))
+        if name == "front":
+            tex, X0, X1, Y0, Y1, x0, w, y0, h, opened, fog, dist = a
+            decl.append("static const uint32_t F%d_T%d[] = %s;" % (i, k, c_tex(tex)))
+            lines.append("    clio_frame_front(f, F%d_T%d, %d, %d, %d, %d, %d, %d, %r, %r, %r, %r, %r, %r, %r);" % (
+                i, k, len(tex[0]), len(tex), X0, X1, Y0, Y1, float(x0), float(w), float(y0), float(h), float(opened),
+                float(fog), float(dist)))
+        elif name == "side":
+            tex, xs, zcs, fogs, half, span, yh, ch, fs, opened, z = a
+            decl.append("static const uint32_t F%d_T%d[] = %s;" % (i, k, c_tex(tex)))
+            decl.append(arr("int32_t", "F%d_X%d" % (i, k), xs, str))
+            decl.append(arr("double", "F%d_Z%d" % (i, k), zcs))
+            decl.append(arr("double", "F%d_G%d" % (i, k), fogs))
+            lines.append("    clio_frame_side(f, F%d_T%d, %d, %d, %d, F%d_X%d, F%d_Z%d, F%d_G%d, %r, %r, %r, %r, %r, %r, %r);" % (
+                i, k, len(tex[0]), len(tex), len(xs), i, k, i, k, i, k, float(half), float(span), float(yh), float(ch),
+                float(fs), float(opened), float(z)))
+        elif name == "blit":
+            rows, x0, y0, s, sw, sh, t, dist = a
+            decl.append("static const uint32_t F%d_T%d[] = %s;" % (i, k, c_tex(rows)))
+            tone = "NULL"
+            if t is not None:
+                decl.append("static const clio_tone F%d_N%d = {%d, %r, 0x%06Xu, %r, %r, %r, %d, %d, %d, 0x%06Xu};" % (
+                    i, k, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9]))
+                tone = "&F%d_N%d" % (i, k)
+            lines.append("    clio_frame_blit(f, F%d_T%d, %d, %d, %d, %d, %r, %d, %d, %s, %d, %r);" % (
+                i, k, len(rows[0]), len(rows), x0, y0, float(s), sw, sh, tone, 0 if dist is None else 1,
+                0.0 if dist is None else float(dist)))
+        elif name == "darken":
+            lines.append("    clio_frame_darken(f, %d, %d, %d, %d, %r);" % (a[0], a[1], a[2], a[3], float(a[4])))
+        elif name == "triangles":
+            lines.append("    clio_frame_model(f);")
+            for j, (pts, cols) in enumerate(a[0]):
+                flat_pts = [float(v) for p in pts for v in p]
+                smooth = isinstance(cols[0], (list, tuple))
+                flat_cols = [float(v) for c in cols for v in c] if smooth else [float(v) for v in cols]
+                decl.append(arr("double", "F%d_P%d_%d" % (i, k, j), flat_pts))
+                decl.append(arr("double", "F%d_C%d_%d" % (i, k, j), flat_cols))
+                lines.append("    clio_frame_triangle(f, F%d_P%d_%d, F%d_C%d_%d, %d);" % (i, k, j, i, k, j, 1 if smooth else 0))
+        elif name == "recolour":
+            how, kk, colour = a
+            lines.append("    clio_frame_recolour(f, %d, %r, 0x%06Xu);" % (how, float(kk), u32(colour)))
+        elif name == "vignette":
+            lines.append("    clio_frame_vignette(f, %r, %d);" % (float(a[0]), {"left": 1, "right": 2, "back": 3}.get(a[1], 0)))
+        elif name == "shake":
+            lines.append("    clio_frame_shake(f, %d);" % a[0])
+        elif name == "canopy":
+            lines.append("    clio_frame_canopy(f, 0x%06Xu);" % u32(a[0]))
+        elif name == "dashboard":
+            colour, h, y0, x0, x1, gx0, gx1, gy, lit, low = a
+            lines.append("    clio_frame_dashboard(f, 0x%06Xu, %d, %d, %d, %d, %d, %d, %d, %d, %d);" % (
+                u32(colour), h, y0, x0, x1, gx0, gx1, gy, lit, 1 if low else 0))
+        elif name == "cage":
+            lines.append("    clio_frame_cage(f);")
+    return "\n".join(decl) + "\n\nstatic void FRAME%d_CALLS(clio_frame *f)\n{\n%s\n}\n" % (i, "\n".join(lines))
+
+
 def arr(kind, name, values, fmt=repr):
     return "static const %s %s[%d] = {%s};" % (kind, name, max(1, len(values)), ", ".join(fmt(v) for v in values) or "0")
 
@@ -297,6 +530,10 @@ def main():
                                                      float(fx), float(fy), float(rx), float(ry), phase, i, i, i, i, i))
         w("#define ROOM%d_SUM 0x%016XULL\n#define ROOM%d_LATER %d\n#define ROOM%d_FIRST_LATER %d\n\n" % (
             i, h, i, nlater, i, first))
+    for i, (PW, PH, sx, sy, land, calls, h) in enumerate(frame_cases()):
+        w(frame_calls_c(i, calls))
+        w("#define FRAME%d_PW %d\n#define FRAME%d_PH %d\n#define FRAME%d_SX %d\n#define FRAME%d_SY %d\n"
+          "#define FRAME%d_LAND %d\n#define FRAME%d_SUM 0x%016XULL\n\n" % (i, PW, i, PH, i, sx, i, sy, i, 1 if land else 0, i, h))
     for i, (spec, PW, yh, f, lateral, phase, base, tint, h, hs, spots) in enumerate(sky_cases()):
         ridges = spec["ridges"]
         w(arr("uint32_t", "SKY%d_BASE" % i, [u32(c) for c in base], hex) + "\n")

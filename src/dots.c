@@ -37,15 +37,17 @@ static uint8_t brightened(uint8_t c, double f)
     return v >= 255.0 ? 255 : (uint8_t)v;
 }
 
-int clio_dots(const uint8_t *rgb, int cols, int rows, const clio_dots_style *style, uint8_t *out)
+static int dots(const uint8_t *rgb8, const uint32_t *rgb32, int cols, int rows, const clio_dots_style *style,
+                uint8_t *out)
 {
     int r, c, i;
     size_t stride;
-    if (cols <= 0 || rows <= 0 || !rgb || !style || !out)
+    if (cols <= 0 || rows <= 0 || (!rgb8 && !rgb32) || !style || !out)
         return -1;
-    stride = (size_t)cols * 6;
+    stride = (size_t)cols * 2;                          /* pixels a row */
     for (r = 0; r < rows; r++)
         for (c = 0; c < cols; c++) {
+            uint8_t pix[8][3];
             const uint8_t *px[8];
             uint8_t bits[8];
             uint8_t *o = out + ((size_t)r * cols + c) * 8;
@@ -53,7 +55,19 @@ int clio_dots(const uint8_t *rgb, int cols, int rows, const clio_dots_style *sty
             uint8_t cellbits = 0;
             for (i = 0; i < 8; i++) {           /* in CLIo's order: down the rows, across the two columns */
                 int dy = i / 2, dx = i % 2;
-                px[i] = rgb + ((size_t)r * 4 + dy) * stride + ((size_t)c * 2 + dx) * 3;
+                size_t p = ((size_t)r * 4 + dy) * stride + ((size_t)c * 2 + dx);
+                if (rgb8) {
+                    const uint8_t *q = rgb8 + p * 3;
+                    pix[i][0] = q[0];
+                    pix[i][1] = q[1];
+                    pix[i][2] = q[2];
+                } else {
+                    uint32_t v = rgb32[p];
+                    pix[i][0] = (uint8_t)(v >> 16);
+                    pix[i][1] = (uint8_t)(v >> 8);
+                    pix[i][2] = (uint8_t)v;
+                }
+                px[i] = pix[i];
                 bits[i] = BIT[dy][dx];
             }
             for (i = 0; i < 8; i++)
@@ -107,4 +121,14 @@ int clio_dots(const uint8_t *rgb, int cols, int rows, const clio_dots_style *sty
             }
         }
     return 0;
+}
+
+int clio_dots(const uint8_t *rgb, int cols, int rows, const clio_dots_style *style, uint8_t *out)
+{
+    return rgb ? dots(rgb, NULL, cols, rows, style, out) : -1;
+}
+
+int clio_dots32(const uint32_t *rgb, int cols, int rows, const clio_dots_style *style, uint8_t *out)
+{
+    return rgb ? dots(NULL, rgb, cols, rows, style, out) : -1;
 }

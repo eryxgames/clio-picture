@@ -3,6 +3,25 @@
 Versions follow [semantic versioning](https://semver.org). Each follows CLIo's Python, which
 is the reference.
 
+## 0.4.0
+
+A frame kept in the library from the floor to the cells.
+
+- `clio_frame`: CLIo's picture (its pixels, in open land each pixel's distance, the cells
+  covered, a model's own depth), owned by CLIo. Every call keeps CLIo's rule for open land:
+  a pixel is written only where the land there is further off than what is drawn now.
+- Into it: `clio_frame_front` and `clio_frame_side` (the walls' faces, with bullet-hole
+  cover marks), `clio_frame_blit` (pictures, darker with distance or into the haze, a
+  monster's flash, tint and dissolving), `clio_frame_darken` (shadows), `clio_frame_model`
+  and `clio_frame_triangle` (models' triangles, flat or smooth), `clio_frame_recolour`
+  (a blast's flash, sudo, the TTY goggles, whitening, fading), `clio_frame_vignette` (hurt),
+  `clio_frame_shake`, `clio_frame_canopy`, `clio_frame_dashboard`, `clio_frame_cage`;
+  `clio_frame_land_cover` after the land; `clio_dots32` reads the frame for the braille.
+- Frames along the bot's games: rooms 2-2.5 times faster in the pixel view and 6-7 times in
+  dots than CLIo's Python; open land 5-11 times.
+- `tests/cases.h`: the calls CLIo makes on a room's and an open land's frame, recorded by
+  `make_cases.py`, replayed here and compared with what CLIo's Python draws for the same.
+
 ## 0.3.0
 
 The rooms' floor and ceiling.

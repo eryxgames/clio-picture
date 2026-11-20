@@ -37,6 +37,182 @@ static const clio_room ROOM1 = {62, 36, 14, 2, 31.0, -3.5, 12.25, 1.0, 0.0, 0.0,
 #define ROOM1_LATER 38
 #define ROOM1_FIRST_LATER 924
 
+static const uint32_t F0_T0[] = {0xC82828u, CLIO_CLEAR, 0x28C828u, CLIO_CLEAR, 0x2828C8u, 0x5A5A5Au};
+static const uint32_t F0_T1[] = {0x0A0A0Au, 0xFAFA00u, 0x00FAFAu, CLIO_CLEAR};
+static const uint32_t F0_T2[] = {0xC82828u, CLIO_CLEAR, 0x28C828u, CLIO_CLEAR, 0x2828C8u, 0x5A5A5Au};
+static const int32_t F0_X2[3] = {17, 18, 19};
+static const double F0_Z2[3] = {1.3574337390368036, 0.9831139711580169, 0.6624664713806827};
+static const double F0_G2[3] = {0.5044201816937134, 0.554450337131562, 0.6025844873767867};
+static const uint32_t F0_T3[] = {0x0A0A0Au, 0xFAFA00u, 0x00FAFAu, CLIO_CLEAR};
+static const int32_t F0_X3[5] = {0, 1, 2, 3, 4};
+static const double F0_Z3[5] = {0.003893502385139476, 0.20773488088329922, 0.43199289319765566, 0.6812172925924805, 0.9616716060083385};
+static const double F0_G3[5] = {0.7192310830497739, 0.680342971938197, 0.6405162236079148, 0.5996252442620952, 0.5575104938709877};
+static const uint32_t F0_T4[] = {0xC82828u, CLIO_CLEAR, 0x28C828u, CLIO_CLEAR, 0x2828C8u, 0x5A5A5Au};
+static const int32_t F0_X4[7] = {17, 18, 19, 20, 21, 22, 23};
+static const double F0_Z4[7] = {3.209780733417155, 2.835460965538368, 2.5148134657610335, 2.2343591523451756, 1.9851347529503507, 1.7608767406359942, 1.5570353621378343};
+static const double F0_G4[7] = {0.33123063129329344, 0.3581438347901056, 0.3840371019478534, 0.4090786823536878, 0.4333926041424268, 0.45707373038332394, 0.4801967395947757};
+static const uint32_t F0_T5[] = {0xFA0A0Au, CLIO_CLEAR, 0x0AFA0Au, 0x0A0AFAu, CLIO_CLEAR, 0xC8C800u, 0x00C8C8u, CLIO_CLEAR, 0x783C1Eu, 0x1E3C78u, CLIO_CLEAR, 0xFFFFFFu};
+static const uint32_t F0_T6[] = {0xFA0A0Au, CLIO_CLEAR, 0x0AFA0Au, 0x0A0AFAu, CLIO_CLEAR, 0xC8C800u, 0x00C8C8u, CLIO_CLEAR, 0x783C1Eu, 0x1E3C78u, CLIO_CLEAR, 0xFFFFFFu};
+static const clio_tone F0_N6 = {1, 0.6, 0x000000u, 0.35, 0.0, 1.0, 0, 0, 0, 0x000000u};
+static const uint32_t F0_T7[] = {0xFA0A0Au, CLIO_CLEAR, 0x0AFA0Au, 0x0A0AFAu, CLIO_CLEAR, 0xC8C800u, 0x00C8C8u, CLIO_CLEAR, 0x783C1Eu, 0x1E3C78u, CLIO_CLEAR, 0xFFFFFFu};
+static const clio_tone F0_N7 = {1, 0.8, 0x000000u, 0.0, 0.4, 3.1, 7, 0, 1, 0xFF0000u};
+static const uint32_t F0_T8[] = {0xFA0A0Au, CLIO_CLEAR, 0x0AFA0Au, 0x0A0AFAu, CLIO_CLEAR, 0xC8C800u, 0x00C8C8u, CLIO_CLEAR, 0x783C1Eu, 0x1E3C78u, CLIO_CLEAR, 0xFFFFFFu};
+static const clio_tone F0_N8 = {2, 0.9, 0x0A141Eu, 0.5, 0.0, 1.0, 0, 1, 0, 0x000000u};
+static const double F0_P10_0[9] = {3.2, 1.1, 2.0, 14.7, 4.2, 2.5, 6.1, 12.9, 1.0};
+static const double F0_C10_0[3] = {180.0, 90.0, 40.0};
+static const double F0_P10_1[9] = {5.0, 2.0, 1.5, 16.0, 9.0, 0.5, 2.0, 14.0, 3.0};
+static const double F0_C10_1[9] = {250.0, 10.0, 10.0, 10.0, 250.0, 10.0, 10.0, 10.0, 250.5};
+static const double F0_P10_2[9] = {20.5, 0.5, 4.0, 23.0, 15.5, 4.0, 9.0, 8.0, 4.0};
+static const double F0_C10_2[3] = {20.0, 200.0, 220.0};
+static const double F0_P10_3[9] = {1.0, 1.0, 0.2, 1.0, 1.0, 0.2, 5.0, 5.0, 0.2};
+static const double F0_C10_3[3] = {255.0, 255.0, 255.0};
+
+static void FRAME0_CALLS(clio_frame *f)
+{
+    f->cur_z = 1.5;
+    clio_frame_front(f, F0_T0, 3, 2, 11, 18, 1, 11, 10.52544, 7.372800000000002, 1.2895999999999983, 9.830400000000003, 0.0, 0.6763251964048667, 1.5);
+    f->cur_z = 0.8999999999999999;
+    clio_frame_front(f, F0_T1, 2, 2, 0, 7, 0, 7, -2.454921175021761, 9.636614116681173, -0.1567256856574195, 12.848818822241569, 0.4, 0.7867158417722802, 0.8999999999999999);
+    f->cur_z = 0.8999999999999999;
+    clio_frame_side(f, F0_T2, 3, 2, 3, F0_X2, F0_Z2, F0_G2, 12.0, 10.079999999999998, 6.0, 9.200000000000003, 10.0, 0.0, 1.0);
+    f->cur_z = 0.6624664713806827;
+    clio_frame_side(f, F0_T3, 2, 2, 5, F0_X3, F0_Z3, F0_G3, 12.0, -11.52, 6.0, 9.200000000000003, 10.0, 0.25, 0.6);
+    f->cur_z = 0.9616716060083385;
+    clio_frame_side(f, F0_T4, 3, 2, 7, F0_X4, F0_Z4, F0_G4, 12.0, 23.04, 6.0, 9.200000000000003, 10.0, 0.0, 3.0);
+    f->cur_z = 1.3;
+    clio_frame_blit(f, F0_T5, 4, 3, 2, 3, 2.5, 10, 8, NULL, 0, 0.0);
+    f->cur_z = 1.3;
+    clio_frame_blit(f, F0_T6, 4, 3, -3, 9, 1.7, 7, 5, &F0_N6, 1, 1.1);
+    f->cur_z = 1.3;
+    clio_frame_blit(f, F0_T7, 4, 3, 10, -2, 3.1, 12, 9, &F0_N7, 1, 2.2);
+    f->cur_z = 1.3;
+    clio_frame_blit(f, F0_T8, 4, 3, 15, 6, 1.0, 4, 3, &F0_N8, 0, 0.0);
+    f->cur_z = 1.3;
+    clio_frame_darken(f, 7, 14, 11, 12, 0.6);
+    f->cur_z = 0.9;
+    clio_frame_model(f);
+    clio_frame_triangle(f, F0_P10_0, F0_C10_0, 0);
+    clio_frame_triangle(f, F0_P10_1, F0_C10_1, 1);
+    clio_frame_triangle(f, F0_P10_2, F0_C10_2, 0);
+    clio_frame_triangle(f, F0_P10_3, F0_C10_3, 0);
+    f->cur_z = -1000000000.0;
+    clio_frame_cage(f);
+    f->cur_z = -1000000000.0;
+    clio_frame_canopy(f, 0x464C3Cu);
+    f->cur_z = -1000000000.0;
+    clio_frame_dashboard(f, 0x464C3Cu, 3, 13, 4, 19, 8, 15, 14, 8, 1);
+}
+#define FRAME0_PW 24
+#define FRAME0_PH 16
+#define FRAME0_SX 1
+#define FRAME0_SY 2
+#define FRAME0_LAND 0
+#define FRAME0_SUM 0x1598BF67068B1B5DULL
+
+static const uint32_t F1_T0[] = {0xC82828u, CLIO_CLEAR, 0x28C828u, CLIO_CLEAR, 0x2828C8u, 0x5A5A5Au};
+static const uint32_t F1_T1[] = {0x0A0A0Au, 0xFAFA00u, 0x00FAFAu, CLIO_CLEAR};
+static const uint32_t F1_T2[] = {0xC82828u, CLIO_CLEAR, 0x28C828u, CLIO_CLEAR, 0x2828C8u, 0x5A5A5Au};
+static const int32_t F1_X2[3] = {17, 18, 19};
+static const double F1_Z2[3] = {1.332363636363636, 0.8812307692307688, 0.5503999999999998};
+static const double F1_G2[3] = {0.5044201816937134, 0.554450337131562, 0.6025844873767867};
+static const uint32_t F1_T3[] = {0x0A0A0Au, 0xFAFA00u, 0x00FAFAu, CLIO_CLEAR};
+static const int32_t F1_X3[5] = {0, 1, 2, 3, 4};
+static const double F1_Z3[5] = {0.0027826086956521667, 0.15542857142857147, 0.3402105263157895, 0.5684705882352943, 0.8575999999999997};
+static const double F1_G3[5] = {0.7192310830497739, 0.680342971938197, 0.6405162236079148, 0.5996252442620952, 0.5575104938709877};
+static const uint32_t F1_T4[] = {0xC82828u, CLIO_CLEAR, 0x28C828u, CLIO_CLEAR, 0x2828C8u, 0x5A5A5Au};
+static const int32_t F1_X4[5] = {19, 20, 21, 22, 23};
+static const double F1_Z4[5] = {3.3151999999999995, 2.7369411764705887, 2.280421052631579, 1.910857142857143, 1.6055652173913044};
+static const double F1_G4[5] = {0.3840371019478534, 0.4090786823536878, 0.4333926041424268, 0.45707373038332394, 0.4801967395947757};
+static const uint32_t F1_T5[] = {0xFA0A0Au, CLIO_CLEAR, 0x0AFA0Au, 0x0A0AFAu, CLIO_CLEAR, 0xC8C800u, 0x00C8C8u, CLIO_CLEAR, 0x783C1Eu, 0x1E3C78u, CLIO_CLEAR, 0xFFFFFFu};
+static const uint32_t F1_T6[] = {0xFA0A0Au, CLIO_CLEAR, 0x0AFA0Au, 0x0A0AFAu, CLIO_CLEAR, 0xC8C800u, 0x00C8C8u, CLIO_CLEAR, 0x783C1Eu, 0x1E3C78u, CLIO_CLEAR, 0xFFFFFFu};
+static const clio_tone F1_N6 = {2, 0.6, 0x46505Au, 0.35, 0.0, 1.0, 0, 0, 0, 0x000000u};
+static const uint32_t F1_T7[] = {0xFA0A0Au, CLIO_CLEAR, 0x0AFA0Au, 0x0A0AFAu, CLIO_CLEAR, 0xC8C800u, 0x00C8C8u, CLIO_CLEAR, 0x783C1Eu, 0x1E3C78u, CLIO_CLEAR, 0xFFFFFFu};
+static const clio_tone F1_N7 = {1, 0.8, 0x000000u, 0.0, 0.4, 3.1, 7, 0, 1, 0xFF0000u};
+static const uint32_t F1_T8[] = {0xFA0A0Au, CLIO_CLEAR, 0x0AFA0Au, 0x0A0AFAu, CLIO_CLEAR, 0xC8C800u, 0x00C8C8u, CLIO_CLEAR, 0x783C1Eu, 0x1E3C78u, CLIO_CLEAR, 0xFFFFFFu};
+static const clio_tone F1_N8 = {2, 0.9, 0x0A141Eu, 0.5, 0.0, 1.0, 0, 1, 0, 0x000000u};
+static const double F1_P10_0[9] = {3.2, 1.1, 2.0, 14.7, 4.2, 2.5, 6.1, 12.9, 1.0};
+static const double F1_C10_0[3] = {180.0, 90.0, 40.0};
+static const double F1_P10_1[9] = {5.0, 2.0, 1.5, 16.0, 9.0, 0.5, 2.0, 14.0, 3.0};
+static const double F1_C10_1[9] = {250.0, 10.0, 10.0, 10.0, 250.0, 10.0, 10.0, 10.0, 250.5};
+static const double F1_P10_2[9] = {20.5, 0.5, 4.0, 23.0, 15.5, 4.0, 9.0, 8.0, 4.0};
+static const double F1_C10_2[3] = {20.0, 200.0, 220.0};
+static const double F1_P10_3[9] = {1.0, 1.0, 0.2, 1.0, 1.0, 0.2, 5.0, 5.0, 0.2};
+static const double F1_C10_3[3] = {255.0, 255.0, 255.0};
+
+static void FRAME1_CALLS(clio_frame *f)
+{
+    f->cur_z = 1.5;
+    clio_frame_front(f, F1_T0, 3, 2, 11, 18, 1, 11, 10.513548387096774, 7.4322580645161285, 1.251612903225805, 9.90967741935484, 0.0, 0.6793241472649973, 1.5);
+    f->cur_z = 0.8999999999999999;
+    clio_frame_front(f, F1_T1, 2, 2, 0, 7, 0, 7, -1.823999999999998, 9.215999999999998, 0.11199999999999832, 12.288000000000002, 0.4, 0.7667442372959448, 0.8999999999999999);
+    f->cur_z = 0.8999999999999999;
+    clio_frame_side(f, F1_T2, 3, 2, 3, F1_X2, F1_Z2, F1_G2, 12.0, 10.079999999999998, 6.0, 9.200000000000003, 10.0, 0.0, 1.0);
+    f->cur_z = 0.5503999999999998;
+    clio_frame_side(f, F1_T3, 2, 2, 5, F1_X3, F1_Z3, F1_G3, 12.0, -11.52, 6.0, 9.200000000000003, 10.0, 0.25, 0.6);
+    f->cur_z = 0.8575999999999997;
+    clio_frame_side(f, F1_T4, 3, 2, 5, F1_X4, F1_Z4, F1_G4, 12.0, 23.04, 6.0, 9.200000000000003, 10.0, 0.0, 3.0);
+    f->cur_z = 1.3;
+    clio_frame_blit(f, F1_T5, 4, 3, 2, 3, 2.5, 10, 8, NULL, 0, 0.0);
+    f->cur_z = 1.3;
+    clio_frame_blit(f, F1_T6, 4, 3, -3, 9, 1.7, 7, 5, &F1_N6, 1, 1.1);
+    f->cur_z = 1.3;
+    clio_frame_blit(f, F1_T7, 4, 3, 10, -2, 3.1, 12, 9, &F1_N7, 1, 2.2);
+    f->cur_z = 1.3;
+    clio_frame_blit(f, F1_T8, 4, 3, 15, 6, 1.0, 4, 3, &F1_N8, 0, 0.0);
+    f->cur_z = 1.3;
+    clio_frame_darken(f, 7, 14, 11, 12, 0.6);
+    f->cur_z = 0.9;
+    clio_frame_model(f);
+    clio_frame_triangle(f, F1_P10_0, F1_C10_0, 0);
+    clio_frame_triangle(f, F1_P10_1, F1_C10_1, 1);
+    clio_frame_triangle(f, F1_P10_2, F1_C10_2, 0);
+    clio_frame_triangle(f, F1_P10_3, F1_C10_3, 0);
+    f->cur_z = -1000000000.0;
+    clio_frame_cage(f);
+    f->cur_z = -1000000000.0;
+    clio_frame_canopy(f, 0x464C3Cu);
+    f->cur_z = -1000000000.0;
+    clio_frame_dashboard(f, 0x464C3Cu, 3, 13, 4, 19, 8, 15, 14, 8, 1);
+}
+#define FRAME1_PW 24
+#define FRAME1_PH 16
+#define FRAME1_SX 1
+#define FRAME1_SY 2
+#define FRAME1_LAND 1
+#define FRAME1_SUM 0xE23667CD3FAD59AAULL
+
+
+
+static void FRAME2_CALLS(clio_frame *f)
+{
+    f->cur_z = -1000000000.0;
+    clio_frame_recolour(f, 1, 1.35, 0x000000u);
+    f->cur_z = -1000000000.0;
+    clio_frame_recolour(f, 2, 0.0, 0x000000u);
+    f->cur_z = -1000000000.0;
+    clio_frame_recolour(f, 3, 0.0, 0x000000u);
+    f->cur_z = -1000000000.0;
+    clio_frame_recolour(f, 4, 0.3, 0xFFFFFFu);
+    f->cur_z = -1000000000.0;
+    clio_frame_vignette(f, 0.5, 0);
+    f->cur_z = -1000000000.0;
+    clio_frame_vignette(f, 0.5, 1);
+    f->cur_z = -1000000000.0;
+    clio_frame_vignette(f, 0.5, 2);
+    f->cur_z = -1000000000.0;
+    clio_frame_vignette(f, 0.5, 3);
+    f->cur_z = -1000000000.0;
+    clio_frame_shake(f, 2);
+    f->cur_z = -1000000000.0;
+    clio_frame_shake(f, -1);
+}
+#define FRAME2_PW 24
+#define FRAME2_PH 16
+#define FRAME2_SX 1
+#define FRAME2_SY 2
+#define FRAME2_LAND 0
+#define FRAME2_SUM 0x9E0C53C91FE014D8ULL
+
 static const uint32_t SKY0_BASE[20] = {0xf1324, 0x131525, 0x171727, 0x1b1928, 0x1f1c29, 0x241e2b, 0x28212c, 0x2c232e, 0x31262f, 0x362931, 0x3b2c32, 0x412f34, 0x463236, 0x4c3538, 0x53393a, 0x5a3d3c, 0x61423f, 0x6a4741, 0x754d45, 0x84554a};
 static const uint32_t SKY0_RIDGE_RGB[2] = {0x3d2d2d, 0x18181e};
 static const double SKY0_RIDGE_H[2] = {0.25, 0.12};

@@ -228,6 +228,71 @@ static void room_case(const char *what, const clio_room *r, uint64_t want, int l
     free(mine);
 }
 
+/* ---- the frame (0.4): CLIo's calls replayed on a made-up picture, against its Python ---------------- */
+static void frame_case(const char *what, int pw, int ph, int sx, int sy, int land, void (*calls)(clio_frame *),
+                       uint64_t want)
+{
+    size_t n = (size_t)pw * ph, i;
+    int x, y, W = pw / sx, VR = ph / sy;
+    clio_frame f;
+    uint64_t h = 0xCBF29CE484222325ULL;
+    f.pw = pw;
+    f.ph = ph;
+    f.sx = sx;
+    f.sy = sy;
+    f.rgb = (uint32_t *)malloc(n * 4);
+    f.depth = land ? (double *)malloc(n * 8) : NULL;
+    f.cur_z = -1e9;
+    f.cover = (double *)malloc((size_t)W * VR * 8);
+    f.zbuf = (double *)calloc(n, 8);
+    f.zgen = (uint32_t *)calloc(n, 4);
+    f.gen = 0;
+    for (y = 0; y < ph; y++)                                /* make_cases.frame_pixel, frame_depth */
+        for (x = 0; x < pw; x++) {
+            f.rgb[(size_t)y * pw + x] = ((uint32_t)((x * 29 + y * 7) & 255) << 16) |
+                                        ((uint32_t)((x * 3 + y * 41) & 255) << 8) | (uint32_t)((x * x + y) & 255);
+            if (land)
+                f.depth[(size_t)y * pw + x] = 0.5 + ((x * 7 + y * 3) % 11) * 0.4;
+        }
+    for (i = 0; i < (size_t)W * VR; i++)
+        f.cover[i] = 99.0;
+    calls(&f);
+    for (i = 0; i < n; i++)
+        h = fnv32(h, f.rgb[i]);
+    for (i = 0; i < (size_t)W * VR; i++)
+        h = fnv_double(h, f.cover[i]);
+    if (h != want) {
+        printf("FAIL %s: the picture differs from CLIo's\n", what);
+        bad++;
+    }
+    free(f.rgb);
+    free(f.depth);
+    free(f.cover);
+    free(f.zbuf);
+    free(f.zgen);
+}
+
+/* clio_dots32 on 0xRRGGBB pixels is clio_dots on their bytes */
+static void dots32_case(void)
+{
+    uint32_t px32[48];
+    uint8_t a[48], b[48];
+    int i, fill;
+    clio_dots_style st = {0, {0}, 215.0, 1.9, 9.0};
+    memcpy(st.steps, STEPS, sizeof STEPS);
+    for (i = 0; i < 48; i++)
+        px32[i] = ((uint32_t)PX[i * 3] << 16) | ((uint32_t)PX[i * 3 + 1] << 8) | PX[i * 3 + 2];
+    for (fill = 0; fill < 2; fill++) {
+        st.fill = fill;
+        clio_dots(PX, 3, 2, &st, a);
+        clio_dots32(px32, 3, 2, &st, b);
+        if (memcmp(a, b, 48) != 0) {
+            printf("FAIL dots32: differs from dots\n");
+            bad++;
+        }
+    }
+}
+
 static void sky_case(const char *what, const clio_sky *s, uint64_t want, uint64_t want_ridges, int spots, int first)
 {
     size_t n = (size_t)s->pw * s->yh, i;
@@ -331,6 +396,12 @@ int main(void)
     }
     land_case("land ahead", &LAND0, LAND0_SKY, LAND0_SUM);
     land_case("land sideways, low detail", &LAND1, LAND1_SKY, LAND1_SUM);
+    frame_case("a room's frame", FRAME0_PW, FRAME0_PH, FRAME0_SX, FRAME0_SY, FRAME0_LAND, FRAME0_CALLS, FRAME0_SUM);
+    frame_case("an open land's frame", FRAME1_PW, FRAME1_PH, FRAME1_SX, FRAME1_SY, FRAME1_LAND, FRAME1_CALLS,
+               FRAME1_SUM);
+    frame_case("colour changes, hurt and shaking", FRAME2_PW, FRAME2_PH, FRAME2_SX, FRAME2_SY, FRAME2_LAND,
+               FRAME2_CALLS, FRAME2_SUM);
+    dots32_case();
     room_case("room ahead", &ROOM0, ROOM0_SUM, ROOM0_LATER, ROOM0_FIRST_LATER);
     room_case("room sideways, low detail", &ROOM1, ROOM1_SUM, ROOM1_LATER, ROOM1_FIRST_LATER);
     sky_case("sky with stars, clouds, ridges", &SKY0, SKY0_SUM, SKY0_RIDGES_SUM, SKY0_SPOTS, SKY0_FIRST_SPOT);
