@@ -308,6 +308,17 @@ class Recorder:
     def cage(self):
         self._keep("cage")
 
+    record = True
+
+    def model_draw(self, m, held):
+        pts, corner, mat, own, colour, mats = held
+        fields = {name: getattr(m, name) for name, _t in m._fields_ if name not in (
+            "pts", "corner", "mat", "own", "colour", "mats")}
+        fields["light"] = list(m.light)
+        self._keep("model", fields, list(pts), list(corner), list(mat), list(own), list(colour),
+                   [(x.r, x.g, x.b, x.metal, x.rough, x.glow) for x in mats])
+        return [1.0, 0.0, 0.0, 0.0]
+
 
 class RecPx(list):
     frame = None
@@ -358,6 +369,8 @@ def frame_scene(v, px, land, part):
                 model_mod.raster(px, zbuf, v.PW, v.PH, pts, cols)
     if part == "colours":
         return frame_colours(v, px, fr)
+    if part == "models":
+        return frame_models(v, px)
     tex = TILE_A
     v.front_face(px, 0.3, 2.0, tex)
     v.front_face(px, -1.0, 1.4, TILE_B, 0.4)
@@ -376,6 +389,33 @@ def frame_scene(v, px, land, part):
     v.cockpit(px, CageLevel, None)
     v.canopy(px, (70, 76, 60))
     v.dashboard(px, Vehicle(), (70, 76, 60))
+    return px
+
+
+MODEL_SPECS = [
+    {"materials": {"hull": {"color": "#6b717c", "metal": 0.8, "rough": 0.35}, "eye": {"color": "#ff3020", "glow": 3},
+                   "paint": {"color": "#e07a1f", "rough": 0.5}},
+     "parts": [{"shape": "sphere", "size": [0.5, 0.5, 0.34], "at": [0, 0, 0.55], "material": "hull", "detail": 1},
+               {"shape": "box", "size": [0.5, 0.06, 0.04], "at": [0, 0, 0.53], "material": "paint"},
+               {"shape": "cylinder", "axis": "y", "size": [0.15, 0.42, 0.15], "at": [0.36, -0.05, 0.52],
+                "material": "eye", "color": "#20ff40"}]},
+    {"smooth": True, "materials": {"glass": {"color": "#4080c0", "metal": 0.2, "rough": 0.15}},
+     "parts": [{"shape": "sphere", "size": [0.6, 0.6, 0.6], "at": [0, 0, 0.6], "material": "glass", "detail": 2}]},
+]
+
+
+def frame_models(v, px):
+    """Models as View.draw_model draws them: near and far, turned, broken apart, flashing, tinted, smooth."""
+    from engine import model as model_mod
+    a, b = (model_mod.Model("m%d" % i, spec) for i, spec in enumerate(MODEL_SPECS))
+    cam = (0.0, 0.0, 0, -1, 1, 0)                         # at (0, 0) looking north
+    v.cur_z = 2.0
+    v.draw_model(px, a, 0.3, -2.2, 0.7, "idle", 0.0, cam)
+    v.draw_model(px, a, -0.8, -1.0, 2.1, "idle", 0.0, cam, flash=True)               # near: flattened depth
+    v.draw_model(px, b, 0.6, -1.6, 0.0, "idle", 0.0, cam, lift=0.2, size=0.8)
+    v.draw_model(px, a, 1.4, -3.5, 4.0, "idle", 0.0, cam, tint=(40, 200, 255))
+    v.draw_model(px, a, -1.0, -2.6, 1.0, "idle", 0.0, cam, gone=0.4, seed=5)           # breaking apart
+    v.draw_model(px, b, 0.0, -0.05, 0.0, "idle", 0.0, cam)                              # partly behind the eye
     return px
 
 
@@ -401,7 +441,7 @@ def frame_colours(v, px, fr):
 def frame_cases():
     from engine.land import DepthRow
     out = []
-    for land, part in ((False, "drawing"), (True, "drawing"), (False, "colours")):
+    for land, part in ((False, "drawing"), (True, "drawing"), (False, "colours"), (False, "models"), (True, "models")):
         v = firstperson.View(24, 8, "pixel")
         v.set_eye(None)
         if land:
@@ -494,6 +534,30 @@ def frame_calls_c(i, calls):
                 u32(colour), h, y0, x0, x1, gx0, gx1, gy, lit, 1 if low else 0))
         elif name == "cage":
             lines.append("    clio_frame_cage(f);")
+        elif name == "model":
+            m, pts, corner, mat, own, colour, mats = a
+            decl.append(arr("double", "F%d_MP%d" % (i, k), pts))
+            decl.append(arr("int32_t", "F%d_MC%d" % (i, k), corner, str))
+            decl.append(arr("int32_t", "F%d_MM%d" % (i, k), mat, str))
+            decl.append(arr("int8_t", "F%d_MO%d" % (i, k), own, str))
+            decl.append(arr("double", "F%d_MK%d" % (i, k), colour))
+            decl.append("static const clio_material F%d_MT%d[] = {%s};" % (i, k, ", ".join(
+                "{%s}" % ", ".join(repr(float(x)) for x in mt) for mt in mats)))
+            lines.append("    {")
+            lines.append("        clio_model_draw m = {0};")
+            lines.append("        double out[4];")
+            lines.append("        m.ntri = %d; m.pts = F%d_MP%d; m.corner = F%d_MC%d; m.mat = F%d_MM%d; m.own = F%d_MO%d;" % (
+                m["ntri"], i, k, i, k, i, k, i, k))
+            lines.append("        m.colour = F%d_MK%d; m.nverts = %d; m.mats = F%d_MT%d; m.nmats = %d; m.cull = %d; m.smooth = %d;" % (
+                i, k, m["nverts"], i, k, m["nmats"], m["cull"], m["smooth"]))
+            for fld in ("cx", "cy", "fx", "fy", "rx", "ry", "half", "lw", "yh", "fs", "ch", "persp", "flat", "zm", "eye", "vis"):
+                lines.append("        m.%s = %r;" % (fld, float(m[fld])))
+            lines.append("        m.light[0] = %r; m.light[1] = %r; m.light[2] = %r;" % tuple(float(x) for x in m["light"]))
+            lines.append("        m.air = %d; m.haze = 0x%06Xu; m.flash = %d; m.tinted = %d; m.tint = 0x%06Xu;" % (
+                m["air"], m["haze"], m["flash"], m["tinted"], m["tint"]))
+            lines.append("        if (clio_frame_model_draw(f, &m, out) != 0)")
+            lines.append("            frame_model_failed++;")
+            lines.append("    }")
     return "\n".join(decl) + "\n\nstatic void FRAME%d_CALLS(clio_frame *f)\n{\n%s\n}\n" % (i, "\n".join(lines))
 
 
@@ -530,6 +594,12 @@ def main():
                                                      float(fx), float(fy), float(rx), float(ry), phase, i, i, i, i, i))
         w("#define ROOM%d_SUM 0x%016XULL\n#define ROOM%d_LATER %d\n#define ROOM%d_FIRST_LATER %d\n\n" % (
             i, h, i, nlater, i, first))
+    import struct
+    probes = [(0.7, 1 / 2.4), (0.0123, 1 / 2.4), (0.64, 3.7), (0.31, 5.0), (0.9, 2.0)]
+    w("/* this machine's pow and exp on a few numbers: the model cases apply where the test's give the same */\n")
+    w("static const double PROBE_POW[%d][3] = {%s};\n" % (len(probes), ", ".join(
+        "{%r, %r, %r}" % (x, y, x ** y) for x, y in probes)))
+    w("static const double PROBE_EXP[2][2] = {{%r, %r}, {%r, %r}};\n\n" % (-0.37, math.exp(-0.37), -2.5, math.exp(-2.5)))
     for i, (PW, PH, sx, sy, land, calls, h) in enumerate(frame_cases()):
         w(frame_calls_c(i, calls))
         w("#define FRAME%d_PW %d\n#define FRAME%d_PH %d\n#define FRAME%d_SX %d\n#define FRAME%d_SY %d\n"

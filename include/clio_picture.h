@@ -14,6 +14,7 @@
  * 0.3: the rooms' floor and ceiling (View._backdrop).
  * 0.4: a frame kept here from the floor to the cells: walls, pictures, shadows, models' triangles, colour
  *      changes, hurt, shaking, the cockpit, and the braille read straight from it.
+ * 0.5: models projected, shaded and drawn here.
  */
 #ifndef CLIO_PICTURE_H
 #define CLIO_PICTURE_H
@@ -36,9 +37,9 @@ extern "C" {
 #  define CLIO_PICTURE_API __attribute__((visibility("default")))
 #endif
 
-#define CLIO_PICTURE_VERSION "0.4.0"
+#define CLIO_PICTURE_VERSION "0.5.0"
 
-/* "0.4.0" */
+/* "0.5.0" */
 CLIO_PICTURE_API const char *clio_picture_version(void);
 
 /* A lattice point's value, 0..1 (land._h): a 32-bit hash of the point and the seed. */
@@ -262,6 +263,56 @@ CLIO_PICTURE_API void clio_frame_dashboard(clio_frame *f, uint32_t colour, int h
 
 /* A machine's cage at the edges of the picture (View.cockpit without a canopy) */
 CLIO_PICTURE_API void clio_frame_cage(clio_frame *f);
+
+/* ---- 0.5: models, projected, shaded and drawn here (View.draw_model, model.pbr) --------------------------
+ * The shading needs pow and the open land's haze exp. The library has none of its own: the caller hands over the
+ * ones its Python uses (clio_maths), and CLIo checks clio_shade against model.pbr before it lets the library draw
+ * models. Until then the calls below do nothing (clio_frame_model_draw returns -2). */
+
+/* The pow and exp to use */
+CLIO_PICTURE_API void clio_maths(double (*pow_fn)(double, double), double (*exp_fn)(double));
+
+typedef struct clio_material {
+    double r, g, b;         /* albedo, linear 0..1 */
+    double metal, rough, glow;
+} clio_material;
+
+typedef struct clio_model_draw {
+    int ntri;
+    const double *pts;          /* ntri * 9: each corner's world x, y and height */
+    const int32_t *corner;      /* ntri * 3: each corner's vertex, for smooth normals (smooth only) */
+    const int32_t *mat;         /* ntri: its material */
+    const int8_t *own;          /* ntri: 1 where the face has its own colour */
+    const double *colour;       /* ntri * 3: that colour (linear 0..1) */
+    int nverts;                 /* vertices (smooth) */
+    const clio_material *mats;
+    int nmats;
+    int cull;                   /* 1: faces turned away are not drawn (0 for shards) */
+    int smooth;                 /* 1: colours worked out at the corners and blended */
+    double cx, cy, fx, fy, rx, ry;  /* the camera */
+    double half, lw, yh, fs, ch;    /* the View's numbers */
+    double persp;               /* > 0: open land's perspective from that far behind; 0: rooms (0.64 ^ z) */
+    double flat, zm;            /* flat > 0: near, projected at the middle's depth zm (View.draw_model) */
+    double eye;                 /* View.EYE */
+    double light[3];            /* the light, a unit vector */
+    int air;                    /* 1: open land: into the haze instead of darker */
+    uint32_t haze;
+    double vis;
+    int flash, tinted;
+    uint32_t tint;
+} clio_model_draw;
+
+/* A model into the frame (a new depth of its own). out: [shown, top, x min, x max] of what was drawn. Returns 0,
+ * -1 for bad numbers, -2 without clio_maths, -3 out of memory. */
+CLIO_PICTURE_API int clio_frame_model_draw(clio_frame *f, const clio_model_draw *m, double *out);
+
+/* model.pbr: a triangle's colour (0..255) - to check the library against CLIo's Python */
+CLIO_PICTURE_API void clio_shade(const clio_material *mat, const double *rgb, const double *n, const double *light,
+                                 const double *view, int *out);
+
+/* The rooms' size at distance z (0.64 ^ z) and the open land's haze at d (1 - e^(-d / vis)): to check them too */
+CLIO_PICTURE_API double clio_room_scale(double z);
+CLIO_PICTURE_API double clio_haze(double d, double vis);
 
 /* Braille cells from pixels (CLIo's dots and dots-fill styles, engine/firstperson.py View.braille).
  * A cell is 2 pixels across and 4 down; its dots are Unicode braille U+2800 + bits. */

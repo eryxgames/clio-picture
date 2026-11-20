@@ -3,6 +3,22 @@
 Versions follow [semantic versioning](https://semver.org). Each follows CLIo's Python, which
 is the reference.
 
+## 0.5.0
+
+Models drawn here.
+
+- `clio_frame_model_draw`: CLIo's `View.draw_model` - each triangle projected (the rooms'
+  0.64 ^ z or open land's perspective; near models at the middle's depth), turned-away ones
+  dropped, shaded by `model.pbr` (GGX, Smith-Schlick, Fresnel-Schlick, Reinhard, sRGB) at its
+  middle or blended from its corners, darker with distance or into the haze, flashed or
+  tinted, and drawn with the model's own depth. Shards of a broken model are lit from the
+  side that faces the eye.
+- `clio_maths`: the `pow` and `exp` to use, handed over by the caller - CLIo gives its
+  Python's own. `clio_shade`, `clio_room_scale`, `clio_haze`: to check them against it.
+- Frames with models 2-2.5 times faster than with 0.4: E1M3 19 -> 8 ms, E1M4 17 -> 8 ms.
+- `tests/cases.h`: models in a room and in open land, recorded from CLIo; compared where the
+  test's `pow` and `exp` give what the cases were made with.
+
 ## 0.4.0
 
 A frame kept in the library from the floor to the cells.

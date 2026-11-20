@@ -5,6 +5,7 @@
  * last bit. cases.h is written by make_cases.py. */
 #include "clio_picture.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +20,8 @@ static const double STEPS[8] = {12.002967629918455, 31.201586888453544, 48.65064
 static const uint8_t PX[144] = {60, 60, 60, 60, 60, 60, 0, 0, 0, 2, 1, 1, 212, 172, 59, 9, 13, 72, 60, 60, 60, 60, 60, 60, 2, 1, 1, 0, 0, 0, 241, 183, 130, 38, 24, 143, 60, 60, 60, 60, 60, 60, 0, 0, 0, 0, 0, 0, 14, 194, 201, 67, 35, 214, 60, 60, 60, 60, 60, 60, 0, 0, 0, 2, 1, 1, 43, 205, 16, 96, 46, 29, 116, 84, 35, 169, 181, 48, 222, 22, 61, 19, 119, 74, 72, 216, 87, 125, 57, 100, 145, 95, 106, 198, 192, 119, 251, 33, 132, 48, 130, 145, 101, 227, 158, 154, 68, 171, 174, 106, 177, 227, 203, 190, 24, 44, 203, 77, 141, 216, 130, 238, 229, 183, 79, 242, 203, 117, 248, 0, 214, 5, 53, 55, 18, 106, 152, 31, 159, 249, 44, 212, 90, 57};
 static const uint8_t WANT_DOTS[48] = {21, 2, 114, 114, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 71, 2, 145, 215, 115, 0, 0, 0, 253, 2, 213, 215, 161, 0, 0, 0, 189, 2, 145, 179, 215, 0, 0, 0, 247, 2, 186, 214, 182, 0, 0, 0};
 static const uint8_t WANT_FILL[48] = {0, 1, 0, 0, 0, 60, 60, 60, 0, 1, 0, 0, 0, 0, 0, 0, 71, 3, 127, 188, 101, 52, 29, 114, 184, 3, 148, 197, 90, 159, 100, 141, 184, 3, 62, 135, 116, 137, 38, 103, 71, 3, 115, 232, 129, 168, 73, 142};
+
+static int frame_model_failed = 0;
 
 #include "cases.h"
 
@@ -401,6 +404,25 @@ int main(void)
                FRAME1_SUM);
     frame_case("colour changes, hurt and shaking", FRAME2_PW, FRAME2_PH, FRAME2_SX, FRAME2_SY, FRAME2_LAND,
                FRAME2_CALLS, FRAME2_SUM);
+    clio_maths(pow, exp);
+    {
+        int same = 1, k;
+        for (k = 0; k < 5; k++)
+            same = same && pow(PROBE_POW[k][0], PROBE_POW[k][1]) == PROBE_POW[k][2];
+        for (k = 0; k < 2; k++)
+            same = same && exp(PROBE_EXP[k][0]) == PROBE_EXP[k][1];
+        if (same) {
+            frame_case("models in a room", FRAME3_PW, FRAME3_PH, FRAME3_SX, FRAME3_SY, FRAME3_LAND, FRAME3_CALLS,
+                       FRAME3_SUM);
+            frame_case("models in open land", FRAME4_PW, FRAME4_PH, FRAME4_SX, FRAME4_SY, FRAME4_LAND,
+                       FRAME4_CALLS, FRAME4_SUM);
+            if (frame_model_failed) {
+                printf("FAIL models: %d not drawn\n", frame_model_failed);
+                bad++;
+            }
+        } else
+            printf("(models not compared: this machine's pow or exp differs from the one the cases were made with)\n");
+    }
     dots32_case();
     room_case("room ahead", &ROOM0, ROOM0_SUM, ROOM0_LATER, ROOM0_FIRST_LATER);
     room_case("room sideways, low detail", &ROOM1, ROOM1_SUM, ROOM1_LATER, ROOM1_FIRST_LATER);

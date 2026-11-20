@@ -10,10 +10,11 @@ on a few values before it uses it, and keeps to the Python if anything differs.
 
 C99, no dependencies, Apache-2.0.
 
-## What it does (0.4)
+## What it does (0.5)
 
 | Function | CLIo's Python | Faster by |
 | --- | --- | --- |
+| `clio_frame_model_draw`: models projected, shaded (GGX, Fresnel, Reinhard) and drawn | `View.draw_model`, `model.pbr` | a frame with models 2-2.5 times faster than with 0.4 |
 | `clio_frame_*`: a frame kept here - walls, pictures, shadows, models' triangles, colour changes, hurt, shaking, the cockpit - and `clio_dots32` from it | `View.render` (`engine/firstperson.py`) | a room frame 2-2.5 times, in dots 6-7 times (all of 0.4) |
 | `clio_room_draw`: the rooms' floor and ceiling | `View._backdrop` (`engine/firstperson.py`), all but the teleporters' rings | a room frame 1.5 times, in dots 2.5 times |
 | `clio_land_draw`: the open land's ground caster | `Land.cast` (`engine/land.py`) | about 20 times; a land frame 4-5 times |
@@ -25,18 +26,21 @@ C99, no dependencies, Apache-2.0.
 Frames along the bot's own game of each level, 150 x 34 characters, in CLIo (measured on a
 cloud x86-64 machine):
 
-| Level | Pixel: Python | Pixel: 0.4 | Dots: Python | Dots: 0.4 |
+| Level | Pixel: Python | Pixel: 0.5 | Dots: Python | Dots: 0.5 |
 | --- | --- | --- | --- | --- |
-| E1M1 (rooms) | 10.3 ms | 4.6 ms | 42.6 ms | 6.0 ms |
-| E1M2 (rooms, a vehicle) | 10.2 ms | 4.9 ms | 38.3 ms | 5.8 ms |
-| E1M3 (rooms, sky, models) | 34.2 ms | 17.6 ms | 89.0 ms | 23.4 ms |
-| E1M4 (open land, models) | 75.1 ms | 16.1 ms | 141.1 ms | 20.6 ms |
-| E1M9 (belts, oil, fire) | 10.6 ms | 4.3 ms | 40.1 ms | 6.2 ms |
-| SIM-1 (a land without end) | 65.3 ms | 8.9 ms | 128.7 ms | 11.5 ms |
-| SIM-4 (squads) | 10.4 ms | 4.6 ms | 37.3 ms | 6.5 ms |
+| E1M1 (rooms) | 11.9 ms | 4.4 ms | 40.9 ms | 6.3 ms |
+| E1M2 (rooms, a vehicle) | 9.9 ms | 4.3 ms | 37.7 ms | 5.7 ms |
+| E1M3 (rooms, sky, models) | 35.5 ms | 7.9 ms | 95.5 ms | 14.9 ms |
+| E1M4 (open land, models) | 79.4 ms | 7.7 ms | 141.1 ms | 14.1 ms |
+| E1M9 (belts, oil, fire) | 12.2 ms | 5.0 ms | 44.1 ms | 7.4 ms |
+| SIM-1 (a land without end) | 76.6 ms | 7.1 ms | 132.0 ms | 10.4 ms |
+| SIM-4 (squads) | 11.5 ms | 5.0 ms | 43.0 ms | 6.3 ms |
 
-What is left is mostly the models' shading (`model.pbr`): it needs `pow`, so it is the next
-step, with a check that the library's `pow` is the one CLIo's Python uses.
+Models need `pow`, and open land's haze `exp`. The library has none of its own: CLIo hands it the
+ones its Python uses (`clio_maths`, the process's maths library; on Windows the Universal C Runtime's)
+and checks `clio_shade` against `model.pbr` on a few hundred values before it lets the library draw
+models. So the library links no `pow` (glibc versions it anew now and then) and gives what that
+Python gives.
 
 The caster asks CLIo for each chunk of ground it needs, once a picture (`clio_chunk_fn`), so
 CLIo builds chunks exactly when its Python caster would. The rooms ask for each cell's floor
@@ -52,7 +56,8 @@ CLIo): CLIo still decides what is drawn where, nearest last, and asks the librar
 each wall, picture and triangle into the frame; what the library has no call for (a glow, a
 blast) CLIo draws through rows that read and write the frame's pixels.
 
-Next: the models' shading and projection (`View.draw_model`, `model.pbr`). See `include/clio_picture.h` for the interface.
+Next: what is left in CLIo's Python - glows and blasts (they need a hypotenuse), the order of
+things in a picture, and the cells' tuples. See `include/clio_picture.h` for the interface.
 
 ## Getting it
 
@@ -86,8 +91,8 @@ with `CLIO_PICTURE_LIB=/path/to/libclio_picture.so`, or copy it into CLIo's
 ## Rules for a new function
 
 - CLIo's Python is the reference: the same operations in the same order, `+ - * /`,
-  `floor`, `fabs` and comparisons only - nothing from libm that may round differently on
-  another machine (`pow`, `exp`, `sin`, `hypot`), and no `fmod` (glibc 2.38 gave it a new
+  `floor`, `fabs`, `sqrt` and comparisons - nothing from libm that may round differently on
+  another machine (`exp`, `sin`, `hypot`), but the `pow` and `exp` CLIo hands over, and no `fmod` (glibc 2.38 gave it a new
   symbol version, so a library built on a new Linux would not load on an older one; the
   workflow checks that the Linux builds need nothing newer than glibc 2.17). Where the Python needs one
   of those, CLIo works the values out and passes them in (the dots' `steps`, the haze at each
