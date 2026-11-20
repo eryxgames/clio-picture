@@ -1,0 +1,143 @@
+# Builds CLIo Picture for every machine CLIo runs on, checks each build that can run here against CLIo's own
+# Python (its tests/test_picture.py, with the library required), and - for a tag like v0.1.0 - makes a GitHub
+# release: clio-picture-VERSION-PLATFORM.zip for each machine and checksums.txt (the SHA-256 that CLIo's
+# engine/picture/fetch.py lists).
+#
+# A tag must match CLIO_PICTURE_VERSION in include/clio_picture.h and have a "## VERSION" section in
+# CHANGELOG.md.
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.plat }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { plat: linux-x64,           os: ubuntu-22.04,      kind: unix,    runs: true }
+          - { plat: linux-arm64,         os: ubuntu-22.04-arm,  kind: unix,    runs: true }
+          - { plat: macos-universal,     os: macos-14,          kind: unix,    runs: true }
+          - { plat: windows-x64,         os: windows-2022,      kind: msvc,    runs: true,  arch: x64 }
+          - { plat: windows-arm64,       os: windows-2022,      kind: msvc,    runs: false, arch: amd64_arm64 }
+          - { plat: android-arm64-v8a,   os: ubuntu-22.04,      kind: android, runs: false, cc: aarch64-linux-android21-clang }
+          - { plat: android-armeabi-v7a, os: ubuntu-22.04,      kind: android, runs: false, cc: armv7a-linux-androideabi21-clang }
+          - { plat: android-x86_64,      os: ubuntu-22.04,      kind: android, runs: false, cc: x86_64-linux-android21-clang }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test (Linux)
+        if: matrix.kind == 'unix' && startsWith(matrix.plat, 'linux')
+        run: make test all
+
+      - name: Build and test (macOS, Intel and Apple silicon in one)
+        if: matrix.kind == 'unix' && startsWith(matrix.plat, 'macos')
+        run: |
+          make test all CFLAGS="-O2 -arch x86_64 -arch arm64 -mmacosx-version-min=10.13" \
+                        LDFLAGS="-arch x86_64 -arch arm64 -mmacosx-version-min=10.13"
+          lipo -info build/libclio_picture.dylib
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then arch -x86_64 ./build/test_picture; fi
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: matrix.kind == 'msvc'
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Build (Windows)
+        if: matrix.kind == 'msvc'
+        shell: cmd
+        run: build.bat ${{ matrix.runs && 'test' || '' }}
+
+      - name: Build (Android)
+        if: matrix.kind == 'android'
+        run: |
+          CC="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.cc }}"
+          make all CC="$CC"
+          file build/libclio_picture.so
+
+      - uses: actions/setup-python@v5
+        if: matrix.runs
+        with:
+          python-version: "3.12"
+
+      - name: The same as CLIo's Python
+        if: matrix.runs
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/eryxgames/CLIo.git clio
+          case "${{ matrix.plat }}" in
+            windows-*) lib="$(pwd -W)/build/clio_picture.dll" ;;
+            macos-*)   lib="$PWD/build/libclio_picture.dylib" ;;
+            *)         lib="$PWD/build/libclio_picture.so" ;;
+          esac
+          cd clio
+          if [ -f tests/test_picture.py ]; then
+            CLIO_PICTURE_LIB="$lib" CLIO_PICTURE_REQUIRE=1 python -m unittest tests.test_picture -v
+          else
+            echo "This CLIo has no tests/test_picture.py yet."
+          fi
+
+      - name: Pack
+        shell: bash
+        run: |
+          version=$(sed -n 's/^#define CLIO_PICTURE_VERSION "\(.*\)"/\1/p' include/clio_picture.h)
+          name="clio-picture-$version-${{ matrix.plat }}"
+          mkdir -p "$name/lib" "$name/include"
+          case "${{ matrix.plat }}" in
+            windows-*) cp build/clio_picture.dll build/clio_picture.lib "$name/lib/" ;;
+            macos-*)   cp build/libclio_picture.dylib "$name/lib/" ;;
+            *)         cp build/libclio_picture.so "$name/lib/" ;;
+          esac
+          cp include/clio_picture.h "$name/include/"
+          cp LICENSE NOTICE README.md CHANGELOG.md "$name/"
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -tzip "$name.zip" "$name" > /dev/null
+          else
+            zip -qr "$name.zip" "$name"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.plat }}
+          path: clio-picture-*.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the version and the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          header=$(sed -n 's/^#define CLIO_PICTURE_VERSION "\(.*\)"/\1/p' include/clio_picture.h)
+          echo "tag $version, header $header"
+          test "$version" = "$header"
+          awk -v v="$version" '$1=="##" && $2==v {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no '## $version' section"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum clio-picture-*.zip > checksums.txt
+          cat checksums.txt
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/clio-picture-*.zip dist/checksums.txt \
+            --title "CLIo Picture $VERSION" --notes-file notes.md

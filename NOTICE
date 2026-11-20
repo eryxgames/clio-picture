@@ -1,0 +1,7 @@
+CLIo Picture - the inner loops of CLIo's pictures, in C
+Copyright 2024-2026 Daniel Sandner (https://eryxian.com)
+
+Licensed under the Apache License, Version 2.0 (see the LICENSE file).
+
+It follows CLIo (https://github.com/eryxgames/CLIo), whose Python is the reference for every
+function here.

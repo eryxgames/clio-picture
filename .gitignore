@@ -1,0 +1,10 @@
+build/
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.lib
+*.exp
+*.exe
+*.zip
