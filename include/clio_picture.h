@@ -37,9 +37,9 @@ extern "C" {
 #  define CLIO_PICTURE_API __attribute__((visibility("default")))
 #endif
 
-#define CLIO_PICTURE_VERSION "0.5.0"
+#define CLIO_PICTURE_VERSION "0.6.0"
 
-/* "0.5.0" */
+/* "0.6.0" */
 CLIO_PICTURE_API const char *clio_picture_version(void);
 
 /* A lattice point's value, 0..1 (land._h): a 32-bit hash of the point and the seed. */
@@ -305,6 +305,32 @@ typedef struct clio_model_draw {
 /* A model into the frame (a new depth of its own). out: [shown, top, x min, x max] of what was drawn. Returns 0,
  * -1 for bad numbers, -2 without clio_maths, -3 out of memory. */
 CLIO_PICTURE_API int clio_frame_model_draw(clio_frame *f, const clio_model_draw *m, double *out);
+
+/* ---- 0.6: models kept here as meshes, drawn per instance ---------------------------------------------------
+ * A model's faces, materials and own colours are handed over once (clio_mesh_new); each time one is drawn only its
+ * corners as posed (model space: x right, y forward, z up) and where it stands come over. The library turns them
+ * into the world the way View.draw_model does (x' = wx + x * -fy + y * fx, y' = wy + x * fx + y * fy, z' = z + lift,
+ * in that order) and draws them with clio_frame_model_draw: the same picture to the last bit. */
+typedef struct clio_mesh clio_mesh;
+
+/* faces: ntri * 3 corner indices (0..nverts-1); mat: ntri material indices; own, colour as in clio_model_draw.
+ * NULL for bad numbers or no memory. The library keeps copies. */
+CLIO_PICTURE_API clio_mesh *clio_mesh_new(int nverts, int ntri, const int32_t *faces, const int32_t *mat,
+                                          const int8_t *own, const double *colour, const clio_material *mats,
+                                          int nmats);
+CLIO_PICTURE_API void clio_mesh_free(clio_mesh *mesh);
+
+typedef struct clio_instance {
+    const double *verts;        /* nverts * 3: the corners as posed, in the model's own space */
+    double wx, wy;              /* where it stands */
+    double fx, fy;              /* the way it faces: cos and sin of its heading */
+    double lift;                /* how far above the ground */
+} clio_instance;
+
+/* One instance into the frame. m: the camera and View numbers, cull, smooth, flat, zm, light, flash, tint (its
+ * triangle fields are not read). Returns as clio_frame_model_draw. */
+CLIO_PICTURE_API int clio_frame_mesh_draw(clio_frame *f, const clio_mesh *mesh, const clio_instance *in,
+                                          const clio_model_draw *m, double *out);
 
 /* model.pbr: a triangle's colour (0..255) - to check the library against CLIo's Python */
 CLIO_PICTURE_API void clio_shade(const clio_material *mat, const double *rgb, const double *n, const double *light,

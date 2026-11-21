@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org). Each follows CLIo's Python, which
 is the reference.
 
+## 0.6.0
+
+Models kept here, drawn per instance: crowds.
+
+- `clio_mesh_new`, `clio_mesh_free`: a model's faces, materials and own colours handed over
+  once and kept.
+- `clio_frame_mesh_draw`: one instance of a kept mesh - only its posed corners and where it
+  stands and faces are handed over; the library turns them into the world with the same sums
+  in the same order as `View.draw_model`, then draws as `clio_frame_model_draw`.
+- E1M4 at 150 x 34 with model monsters near: 25 of them 14.6 -> 8.9 ms a frame, 100 of them
+  32 -> 15.5 ms (0.5 spent most of that time packing triangles in Python).
+- `tests/cases.h`: the models of the 0.5 cases drawn again from kept meshes.
+
 ## 0.5.0
 
 Models drawn here.

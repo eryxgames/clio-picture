@@ -416,6 +416,10 @@ int main(void)
                        FRAME3_SUM);
             frame_case("models in open land", FRAME4_PW, FRAME4_PH, FRAME4_SX, FRAME4_SY, FRAME4_LAND,
                        FRAME4_CALLS, FRAME4_SUM);
+            frame_case("models kept as meshes, in a room", FRAME5_PW, FRAME5_PH, FRAME5_SX, FRAME5_SY, FRAME5_LAND,
+                       FRAME5_CALLS, FRAME5_SUM);
+            frame_case("models kept as meshes, in open land", FRAME6_PW, FRAME6_PH, FRAME6_SX, FRAME6_SY,
+                       FRAME6_LAND, FRAME6_CALLS, FRAME6_SUM);
             if (frame_model_failed) {
                 printf("FAIL models: %d not drawn\n", frame_model_failed);
                 bad++;

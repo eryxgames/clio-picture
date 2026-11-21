@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define R(c) ((int)(((c) >> 16) & 255u))
 #define G(c) ((int)(((c) >> 8) & 255u))
@@ -292,4 +293,108 @@ int clio_frame_model_draw(clio_frame *f, const clio_model_draw *m, double *out)
     out[2] = xmin;
     out[3] = xmax;
     return 0;
+}
+
+/* ---- 0.6: meshes kept here, drawn per instance ---------------------------------------------------------- */
+struct clio_mesh {
+    int nverts, ntri, nmats;
+    int32_t *faces, *mat;
+    int8_t *own;
+    double *colour;
+    clio_material *mats;
+    double *world, *pts;        /* room for one instance's corners in the world, and its triangles' */
+};
+
+void clio_mesh_free(clio_mesh *mesh)
+{
+    if (!mesh)
+        return;
+    free(mesh->faces);
+    free(mesh->mat);
+    free(mesh->own);
+    free(mesh->colour);
+    free(mesh->mats);
+    free(mesh->world);
+    free(mesh->pts);
+    free(mesh);
+}
+
+clio_mesh *clio_mesh_new(int nverts, int ntri, const int32_t *faces, const int32_t *mat, const int8_t *own,
+                         const double *colour, const clio_material *mats, int nmats)
+{
+    clio_mesh *m;
+    int i;
+    if (nverts <= 0 || ntri < 0 || nmats <= 0 || !mats || (ntri && (!faces || !mat || !own || !colour)))
+        return NULL;
+    for (i = 0; i < ntri; i++)
+        if (mat[i] < 0 || mat[i] >= nmats || faces[3 * i] < 0 || faces[3 * i] >= nverts || faces[3 * i + 1] < 0 ||
+            faces[3 * i + 1] >= nverts || faces[3 * i + 2] < 0 || faces[3 * i + 2] >= nverts)
+            return NULL;
+    m = (clio_mesh *)calloc(1, sizeof(clio_mesh));
+    if (!m)
+        return NULL;
+    m->nverts = nverts;
+    m->ntri = ntri;
+    m->nmats = nmats;
+    m->faces = (int32_t *)malloc(sizeof(int32_t) * (size_t)(3 * ntri + 1));
+    m->mat = (int32_t *)malloc(sizeof(int32_t) * (size_t)(ntri + 1));
+    m->own = (int8_t *)malloc((size_t)(ntri + 1));
+    m->colour = (double *)malloc(sizeof(double) * (size_t)(3 * ntri + 1));
+    m->mats = (clio_material *)malloc(sizeof(clio_material) * (size_t)nmats);
+    m->world = (double *)malloc(sizeof(double) * (size_t)(3 * nverts));
+    m->pts = (double *)malloc(sizeof(double) * (size_t)(9 * ntri + 1));
+    if (!m->faces || !m->mat || !m->own || !m->colour || !m->mats || !m->world || !m->pts) {
+        clio_mesh_free(m);
+        return NULL;
+    }
+    if (ntri) {
+        memcpy(m->faces, faces, sizeof(int32_t) * (size_t)(3 * ntri));
+        memcpy(m->mat, mat, sizeof(int32_t) * (size_t)ntri);
+        memcpy(m->own, own, (size_t)ntri);
+        memcpy(m->colour, colour, sizeof(double) * (size_t)(3 * ntri));
+    }
+    memcpy(m->mats, mats, sizeof(clio_material) * (size_t)nmats);
+    return m;
+}
+
+int clio_frame_mesh_draw(clio_frame *f, const clio_mesh *mesh, const clio_instance *in, const clio_model_draw *m,
+                         double *out)
+{
+    clio_model_draw d;
+    double rxw, ryw, fxw, fyw;
+    int i, k;
+    if (!POW || !EXP)
+        return -2;
+    if (!f || !mesh || !in || !in->verts || !m || !out)
+        return -1;
+    fxw = in->fx;
+    fyw = in->fy;
+    rxw = -fyw;
+    ryw = fxw;
+    for (i = 0; i < mesh->nverts; i++) {                /* View.draw_model's world: the same sums, the same order */
+        const double *v = in->verts + 3 * i;
+        double *w = mesh->world + 3 * i;
+        w[0] = in->wx + v[0] * rxw + v[1] * fxw;
+        w[1] = in->wy + v[0] * ryw + v[1] * fyw;
+        w[2] = v[2] + in->lift;
+    }
+    for (i = 0; i < mesh->ntri; i++)
+        for (k = 0; k < 3; k++) {
+            const double *w = mesh->world + 3 * mesh->faces[3 * i + k];
+            double *p = mesh->pts + 9 * i + 3 * k;
+            p[0] = w[0];
+            p[1] = w[1];
+            p[2] = w[2];
+        }
+    d = *m;
+    d.ntri = mesh->ntri;
+    d.pts = mesh->pts;
+    d.corner = mesh->faces;
+    d.mat = mesh->mat;
+    d.own = mesh->own;
+    d.colour = mesh->colour;
+    d.nverts = mesh->nverts;
+    d.mats = mesh->mats;
+    d.nmats = mesh->nmats;
+    return clio_frame_model_draw(f, &d, out);
 }

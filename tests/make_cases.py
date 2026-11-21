@@ -320,6 +320,20 @@ class Recorder:
         return [1.0, 0.0, 0.0, 0.0]
 
 
+class MeshRecorder(Recorder):
+    """Takes models the 0.6 way: a kept mesh, the posed corners and where it stands."""
+    meshes = True
+
+    def mesh_draw(self, mesh, inst, m, held):
+        fields = {name: getattr(m, name) for name, _t in m._fields_ if name not in (
+            "pts", "corner", "mat", "own", "colour", "mats")}
+        fields["light"] = list(m.light)
+        self._keep("mesh", fields, list(held), (inst.wx, inst.wy, inst.fx, inst.fy, inst.lift), mesh.nverts,
+                   list(mesh.faces), list(mesh.mat), list(mesh.own), list(mesh.colour),
+                   [(x.r, x.g, x.b, x.metal, x.rough, x.glow) for x in mesh.mats])
+        return [1.0, 0.0, 0.0, 0.0]
+
+
 class RecPx(list):
     frame = None
 
@@ -369,7 +383,7 @@ def frame_scene(v, px, land, part):
                 model_mod.raster(px, zbuf, v.PW, v.PH, pts, cols)
     if part == "colours":
         return frame_colours(v, px, fr)
-    if part == "models":
+    if part in ("models", "meshes"):
         return frame_models(v, px)
     tex = TILE_A
     v.front_face(px, 0.3, 2.0, tex)
@@ -441,7 +455,8 @@ def frame_colours(v, px, fr):
 def frame_cases():
     from engine.land import DepthRow
     out = []
-    for land, part in ((False, "drawing"), (True, "drawing"), (False, "colours"), (False, "models"), (True, "models")):
+    for land, part in ((False, "drawing"), (True, "drawing"), (False, "colours"), (False, "models"), (True, "models"),
+                       (False, "meshes"), (True, "meshes")):
         v = firstperson.View(24, 8, "pixel")
         v.set_eye(None)
         if land:
@@ -465,7 +480,7 @@ def frame_cases():
             rec.persp, rec.air = 1.6, ((70, 80, 90), 30.0)
         rec.cover, rec.cur_z = {}, -1e9
         fake = RecPx([[frame_pixel(x, y) for x in range(PW)] for y in range(PH)])
-        fake.frame = Recorder(rec)
+        fake.frame = (MeshRecorder if part == "meshes" else Recorder)(rec)
         frame_scene(rec, fake, land, part)
         out.append((PW, PH, rec.sx, rec.sy, land, fake.frame.calls, h))
     return out
@@ -557,6 +572,32 @@ def frame_calls_c(i, calls):
                 m["air"], m["haze"], m["flash"], m["tinted"], m["tint"]))
             lines.append("        if (clio_frame_model_draw(f, &m, out) != 0)")
             lines.append("            frame_model_failed++;")
+            lines.append("    }")
+        elif name == "mesh":
+            m, verts, (wx, wy, fx, fy, lift), nverts, faces, mat, own, colour, mats = a
+            decl.append(arr("double", "F%d_MV%d" % (i, k), verts))
+            decl.append(arr("int32_t", "F%d_MF%d" % (i, k), faces, str))
+            decl.append(arr("int32_t", "F%d_MM%d" % (i, k), mat, str))
+            decl.append(arr("int8_t", "F%d_MO%d" % (i, k), own, str))
+            decl.append(arr("double", "F%d_MK%d" % (i, k), colour))
+            decl.append("static const clio_material F%d_MT%d[] = {%s};" % (i, k, ", ".join(
+                "{%s}" % ", ".join(repr(float(x)) for x in mt) for mt in mats)))
+            lines.append("    {")
+            lines.append("        clio_mesh *mesh = clio_mesh_new(%d, %d, F%d_MF%d, F%d_MM%d, F%d_MO%d, F%d_MK%d, F%d_MT%d, %d);" % (
+                nverts, len(mat), i, k, i, k, i, k, i, k, i, k, len(mats)))
+            lines.append("        clio_instance in = {F%d_MV%d, %r, %r, %r, %r, %r};" % (
+                i, k, float(wx), float(wy), float(fx), float(fy), float(lift)))
+            lines.append("        clio_model_draw m = {0};")
+            lines.append("        double out[4];")
+            lines.append("        m.cull = %d; m.smooth = %d;" % (m["cull"], m["smooth"]))
+            for fld in ("cx", "cy", "fx", "fy", "rx", "ry", "half", "lw", "yh", "fs", "ch", "persp", "flat", "zm", "eye", "vis"):
+                lines.append("        m.%s = %r;" % (fld, float(m[fld])))
+            lines.append("        m.light[0] = %r; m.light[1] = %r; m.light[2] = %r;" % tuple(float(x) for x in m["light"]))
+            lines.append("        m.air = %d; m.haze = 0x%06Xu; m.flash = %d; m.tinted = %d; m.tint = 0x%06Xu;" % (
+                m["air"], m["haze"], m["flash"], m["tinted"], m["tint"]))
+            lines.append("        if (!mesh || clio_frame_mesh_draw(f, mesh, &in, &m, out) != 0)")
+            lines.append("            frame_model_failed++;")
+            lines.append("        clio_mesh_free(mesh);")
             lines.append("    }")
     return "\n".join(decl) + "\n\nstatic void FRAME%d_CALLS(clio_frame *f)\n{\n%s\n}\n" % (i, "\n".join(lines))
 
