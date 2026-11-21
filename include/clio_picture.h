@@ -15,6 +15,8 @@
  * 0.4: a frame kept here from the floor to the cells: walls, pictures, shadows, models' triangles, colour
  *      changes, hurt, shaking, the cockpit, and the braille read straight from it.
  * 0.5: models projected, shaded and drawn here.
+ * 0.6: models kept here as meshes, drawn per instance.
+ * 0.7: rooms as faces in a true perspective, with floors and ceilings at heights (CLIo's mesh view).
  */
 #ifndef CLIO_PICTURE_H
 #define CLIO_PICTURE_H
@@ -37,9 +39,9 @@ extern "C" {
 #  define CLIO_PICTURE_API __attribute__((visibility("default")))
 #endif
 
-#define CLIO_PICTURE_VERSION "0.6.0"
+#define CLIO_PICTURE_VERSION "0.7.0"
 
-/* "0.6.0" */
+/* "0.7.0" */
 CLIO_PICTURE_API const char *clio_picture_version(void);
 
 /* A lattice point's value, 0..1 (land._h): a 32-bit hash of the point and the seed. */
@@ -339,6 +341,44 @@ CLIO_PICTURE_API void clio_shade(const clio_material *mat, const double *rgb, co
 /* The rooms' size at distance z (0.64 ^ z) and the open land's haze at d (1 - e^(-d / vis)): to check them too */
 CLIO_PICTURE_API double clio_room_scale(double z);
 CLIO_PICTURE_API double clio_haze(double d, double vis);
+
+/* ---- 0.7: rooms as faces in a true perspective (CLIo's engine/mesh.py, its mesh view) ------------------------
+ * CLIo works out which faces a camera z0 cells behind the player can see - each open cell's floor and ceiling at its
+ * own heights, the walls' faces turned to it, the steps and lintels between cells - and hands them over in the order
+ * it would draw them. Each face is clipped z0 - near... in front of the camera, projected, and filled row by row: a
+ * pixel's ray meets the face's plane, which gives its texel, its distance ahead of the player (kept in the frame's
+ * depth: the first face to a distance keeps a pixel) and its light - open land's fog times the face's own (side on:
+ * `side`), faded out over the last `fade` cells before `far`, in 256 steps. The fog needs pow: clio_maths first. */
+enum { CLIO_FACE_FLOOR = 0, CLIO_FACE_CEILING = 1, CLIO_FACE_XWALL = 2, CLIO_FACE_YWALL = 3 };
+
+typedef struct clio_rooms {
+    int pw, ph;                     /* the picture, as the frame's */
+    double half, yh;                /* the middle column, the horizon's row */
+    double lx, ly;                  /* pixels to a cell across, to a wall's height, z0 cells off */
+    double cx, cy, fx, fy, rx, ry;  /* the player, the way he faces, to his right */
+    double z0, eye;                 /* the camera this far behind him; the eye's height */
+    double far, fade, near, side;   /* engine/mesh.py's FAR, FADE, NEAR, SIDE */
+    double none;                    /* the distance of a pixel no face covers (NONE) */
+    int64_t phase;
+    const uint8_t *sky;             /* the sky's rows (sky_rows rows of pw pixels, r g b), NULL: none */
+    int sky_rows;
+    int nfaces;
+    const int32_t *ints;            /* nfaces * 9: kind (CLIO_FACE_*), side (+1 or -1: an upright face's way), tile (an
+                                       index into texels, -1 none), wall (1: counts for the frame's cover), and for a
+                                       floor or ceiling its clio_room_cell's kind, belt, toxic, fire and mark */
+    const double *geo;              /* nfaces * 7: at, lo, hi, h0, h1, top, opened (engine/mesh.py's Face) */
+    const int64_t *xy;              /* nfaces * 4: a floor's or ceiling's cell (ix, iy), then its pattern's place
+                                       (clio_room_cell's x, y) */
+    int ntex;
+    const uint32_t *const *texels;  /* ntex tiles, row by row (CLIO_CLEAR see-through) */
+    const int32_t *tw, *th;
+} clio_rooms;
+
+/* The rooms into the frame (started with a depth): every pixel and its distance - HAZE and `none` where no face is -
+ * and the frame's cover from the walls' pixels. A teleporter's floor with no tile over it is left to the caller: the
+ * pixel's index and its face's (2 numbers each) go into later (room for 2 * pw * ph), their number into *later_n; the
+ * pixel's distance is set. Returns 0; -1 for bad numbers; -2 without clio_maths; -3 out of memory. */
+CLIO_PICTURE_API int clio_frame_rooms(clio_frame *f, const clio_rooms *r, int32_t *later, int *later_n);
 
 /* Braille cells from pixels (CLIo's dots and dots-fill styles, engine/firstperson.py View.braille).
  * A cell is 2 pixels across and 4 down; its dots are Unicode braille U+2800 + bits. */

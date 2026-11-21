@@ -354,6 +354,57 @@ static void same(const char *what, double got, double want)
     }
 }
 
+/* CLIo's mesh view (0.7): the faces into a frame with a depth; its pixels, distances, cover and the pixels left */
+static void mesh_case(const char *what, const clio_rooms *r, int sx, int sy, int want_later, uint64_t want)
+{
+    size_t n = (size_t)r->pw * r->ph, i;
+    int W = r->pw / sx, VR = r->ph / sy, nl = -1, k;
+    clio_frame f;
+    int32_t *later = (int32_t *)malloc(n * 2 * 4);
+    uint64_t h = 0xCBF29CE484222325ULL;
+    f.pw = r->pw;
+    f.ph = r->ph;
+    f.sx = sx;
+    f.sy = sy;
+    f.rgb = (uint32_t *)malloc(n * 4);
+    f.depth = (double *)malloc(n * 8);
+    f.cur_z = -1e9;
+    f.cover = (double *)malloc((size_t)W * VR * 8);
+    f.zbuf = (double *)calloc(n, 8);
+    f.zgen = (uint32_t *)calloc(n, 4);
+    f.gen = 0;
+    for (i = 0; i < (size_t)W * VR; i++)
+        f.cover[i] = 99.0;
+    if (clio_frame_rooms(&f, r, later, &nl) != 0) {
+        printf("FAIL %s: not drawn\n", what);
+        bad++;
+    } else {
+        for (i = 0; i < n; i++) {
+            uint32_t c = f.rgb[i];
+            uint8_t b4[4] = {(uint8_t)c, (uint8_t)(c >> 8), (uint8_t)(c >> 16), (uint8_t)(c >> 24)};
+            h = fnv(h, b4, 4);
+        }
+        h = fnv(h, (const uint8_t *)f.depth, n * 8);
+        h = fnv(h, (const uint8_t *)f.cover, (size_t)W * VR * 8);
+        for (k = 0; k < nl * 2; k++) {
+            int32_t v = later[k];
+            uint8_t b4[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24)};
+            h = fnv(h, b4, 4);
+        }
+        if (nl != want_later || h != want) {
+            printf("FAIL %s: %d pixels left (%d), sum %016llX (%016llX)\n", what, nl, want_later, (unsigned long long)h,
+                   (unsigned long long)want);
+            bad++;
+        }
+    }
+    free(later);
+    free(f.rgb);
+    free(f.depth);
+    free(f.cover);
+    free(f.zbuf);
+    free(f.zgen);
+}
+
 int main(void)
 {
     double out[6];
@@ -426,6 +477,28 @@ int main(void)
             }
         } else
             printf("(models not compared: this machine's pow or exp differs from the one the cases were made with)\n");
+    }
+    {
+        int same = 1, k;
+        for (k = 0; k < 3; k++)
+            same = same && pow(PROBE_POW75[k][0], PROBE_POW75[k][1]) == PROBE_POW75[k][2];
+        if (same) {
+            mesh_case("the mesh view, half blocks", &MESH0, MESH0_SX, MESH0_SY, MESH0_LATER, MESH0_SUM);
+            mesh_case("the mesh view, braille, a teleporter's rings left", &MESH1, MESH1_SX, MESH1_SY, MESH1_LATER,
+                      MESH1_SUM);
+            mesh_case("the mesh view, faces clipped near the camera", &MESH2, MESH2_SX, MESH2_SY, MESH2_LATER, MESH2_SUM);
+        } else
+            printf("(the mesh view not compared: this machine's pow differs from the one the cases were made with)\n");
+    }
+    {
+        clio_frame f = {0};
+        clio_rooms r = MESH0;
+        int32_t later[2];
+        int nl = 0;
+        if (clio_frame_rooms(&f, &r, later, &nl) != -1) {   /* a frame without pixels */
+            printf("FAIL the mesh view: a frame without pixels is not refused\n");
+            bad++;
+        }
     }
     dots32_case();
     room_case("room ahead", &ROOM0, ROOM0_SUM, ROOM0_LATER, ROOM0_FIRST_LATER);

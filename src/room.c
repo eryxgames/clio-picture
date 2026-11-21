@@ -7,6 +7,7 @@
  * operations in the same order as the Python, so the same pixels come out. */
 #define CLIO_PICTURE_BUILD
 #include "clio_picture.h"
+#include "internal.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -122,7 +123,7 @@ static const clio_room_cell *cell_at(ctable *t, clio_room_cell_fn fn, void *user
     return &t->s[j].c;
 }
 
-static uint32_t texel(const clio_room_cell *c, double ux, double uy)
+uint32_t clio__room_texel(const clio_room_cell *c, double ux, double uy)
 {
     int th = c->tex_h, tw = c->tex_w;
     int ty = (int)((uy + 0.5) * th), tx = (int)((ux + 0.5) * tw);
@@ -134,7 +135,7 @@ static uint32_t texel(const clio_room_cell *c, double ux, double uy)
 }
 
 /* View.fixture, but for teleporters: NONE where nothing is set there */
-static uint32_t fixture(const clio_room_cell *c, double ux, double uy, int64_t phase)
+uint32_t clio__room_fixture(const clio_room_cell *c, double ux, double uy, int64_t phase)
 {
     double m = fabs(ux) > fabs(uy) ? fabs(ux) : fabs(uy);
     switch (c->kind) {
@@ -222,14 +223,14 @@ int clio_room_draw(const clio_room *r, clio_room_cell_fn cell, void *user, uint3
             }
             if (kind == 0) {                               /* the floor */
                 if (c->tex)
-                    col = texel(c, ux, uy);
+                    col = clio__room_texel(c, ux, uy);
                 if (col == NONE && c->kind != CLIO_FLOOR_PLAIN) {
                     if (c->kind == CLIO_FLOOR_TELEPORT) {  /* the caller's */
                         later[n++] = y * PW + x;
                         row[x] = HAZE;
                         continue;
                     }
-                    col = fixture(c, ux, uy, r->phase);
+                    col = clio__room_fixture(c, ux, uy, r->phase);
                 }
                 if (col == NONE && c->toxic) {
                     col = noise((int64_t)(ux * 8) + ix * 8, (int64_t)(uy * 8) + iy * 8, r->phase) < 0.07 ? TOXIC_HI
@@ -262,7 +263,7 @@ int clio_room_draw(const clio_room *r, clio_room_cell_fn cell, void *user, uint3
                     continue;
                 }
                 if (c->tex)
-                    col = texel(c, ux, uy);
+                    col = clio__room_texel(c, ux, uy);
                 if (col == NONE) {
                     col = CEIL;
                     if (fabs(ux) > 0.47 || fabs(uy) > 0.47)

@@ -602,6 +602,47 @@ def frame_calls_c(i, calls):
     return "\n".join(decl) + "\n\nstatic void FRAME%d_CALLS(clio_frame *f)\n{\n%s\n}\n" % (i, "\n".join(lines))
 
 
+MESHES = [  # a view of CLIo's tests/test_mesh.py features room: W, VR, style, where from, facing, camera, beat
+    (40, 12, "pixel", (6, 9), 0, (6.0, 8.6), 3),
+    (24, 8, "dots", (9, 7), 3, None, 1),
+    (36, 10, "pixel", (11, 7), 0, None, 2),                  # the east wall runs on past the camera: clipped near it
+]
+
+
+def mesh_cases():
+    """What CLIo's engine/mesh.py draws of a room with every kind of face and floor, as CLIo Picture is to draw it
+    (teleporters left to the caller): the faces as CLIo packs them, the tiles, the sky, and sums of the pixels, the
+    distances, the cover and the pixels left."""
+    sys.path.insert(0, os.path.join(os.path.abspath(CLIO), "tests"))
+    import test_mesh
+    from engine import mesh, picture
+    out = []
+    for W, VR, style, (x, y), f, cam, phase in MESHES:
+        lv = test_mesh.features_room()
+        test_mesh.put(lv, x, y, f)
+        v = firstperson.View(W, VR, style, "high", render="mesh")
+        cx, cy = cam if cam is not None else (x, y)
+        fx, fy = firstperson.DIRS[f]
+        rx, ry = firstperson.DIRS[(f + 1) % 4]
+        cam6 = (cx, cy, fx, fy, rx, ry)
+        v.persp = mesh.Z0
+        v.set_eye_abs(lv.ground(cx, cy) + v.EYE0)
+        sky = v.sky_rows(lv, cx, cy, f, phase)
+        m = mesh.Mesh(v)
+        ex, ey = cx - fx * mesh.Z0, cy - fy * mesh.Z0
+        faces = m.faces(lv, cam6, v.EYE, {}, phase, ex, ey)
+        later = []
+        rgb, zbuf, cover, _labels = m.draw(lv, cam6, v.EYE, phase, {}, sky, later=later)
+        ints, geo, xy, tiles = picture.pack_rooms(faces, mesh)
+        cov = [cover.get((r, c), 99.0) for r in range(v.VR) for c in range(v.W)]
+        h = sum_rgb(0xCBF29CE484222325, [c for row in rgb for c in row])
+        h = sum_doubles(h, list(zbuf))
+        h = sum_doubles(h, cov)
+        h = fnv(h, b"".join(int(n).to_bytes(4, "little", signed=True) for p_ in later for n in p_))
+        out.append((v, cam6, phase, sky, list(ints), list(geo), list(xy), tiles, len(later), h))
+    return out
+
+
 def arr(kind, name, values, fmt=repr):
     return "static const %s %s[%d] = {%s};" % (kind, name, max(1, len(values)), ", ".join(fmt(v) for v in values) or "0")
 
@@ -641,6 +682,41 @@ def main():
     w("static const double PROBE_POW[%d][3] = {%s};\n" % (len(probes), ", ".join(
         "{%r, %r, %r}" % (x, y, x ** y) for x, y in probes)))
     w("static const double PROBE_EXP[2][2] = {{%r, %r}, {%r, %r}};\n\n" % (-0.37, math.exp(-0.37), -2.5, math.exp(-2.5)))
+    probes75 = [(0.37, 0.75), (0.9, 0.75), (0.123, 0.75)]
+    w("/* this machine's pow for the mesh view's fog (x ** 0.75): its cases apply where the test's gives the same */\n")
+    w("static const double PROBE_POW75[%d][3] = {%s};\n\n" % (len(probes75), ", ".join(
+        "{%r, %r, %r}" % (x, y, x ** y) for x, y in probes75)))
+    pool = []                                                 # every tile of the mesh cases, once
+    for i, (v, cam6, phase, sky, ints, geo, xy, tiles, nlater, h) in enumerate(mesh_cases()):
+        names = []
+        for t in tiles:
+            rows = t[0]
+            k = next((j for j, r in enumerate(pool) if r is rows or r == rows), None)
+            if k is None:
+                k = len(pool)
+                pool.append(rows)
+                w(arr("uint32_t", "MESH_TILE%d" % k, list(t[3]), hex) + "\n")
+            names.append(k)
+        w("static const uint32_t *const MESH%d_TEXELS[%d] = {%s};\n" % (
+            i, max(1, len(names)), ", ".join("MESH_TILE%d" % k for k in names) or "NULL"))
+        w(arr("int32_t", "MESH%d_TW" % i, [t[1] for t in tiles] or [0], str) + "\n")
+        w(arr("int32_t", "MESH%d_TH" % i, [t[2] for t in tiles] or [0], str) + "\n")
+        w(arr("int32_t", "MESH%d_INTS" % i, ints, str) + "\n")
+        w(arr("double", "MESH%d_GEO" % i, geo) + "\n")
+        w(arr("int64_t", "MESH%d_XY" % i, xy, str) + "\n")
+        if sky:
+            w(arr("uint8_t", "MESH%d_SKY" % i, [b for row in sky for c in row for b in c], str) + "\n")
+        cx, cy, fx, fy, rx, ry = cam6
+        from engine import mesh as mesh_mod
+        w("static const clio_rooms MESH%d = {%d, %d, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, "
+          "%r, %d, %s, %d, %d, MESH%d_INTS, MESH%d_GEO, MESH%d_XY, %d, MESH%d_TEXELS, MESH%d_TW, MESH%d_TH};\n" % (
+              i, v.PW, v.PH, v.half, float(v.yh), v.LW * mesh_mod.Z0, v.TALL * mesh_mod.Z0, float(cx), float(cy),
+              float(fx), float(fy), float(rx), float(ry), mesh_mod.Z0, float(v.EYE), float(mesh_mod.FAR),
+              mesh_mod.FADE, mesh_mod.NEAR, mesh_mod.SIDE, mesh_mod.NONE, phase,
+              ("MESH%d_SKY" % i) if sky else "NULL", len(sky) if sky else 0, len(ints) // 9, i, i, i, len(tiles), i,
+              i, i))
+        w("#define MESH%d_SX %d\n#define MESH%d_SY %d\n#define MESH%d_LATER %d\n#define MESH%d_SUM 0x%016XULL\n\n" % (
+            i, v.sx, i, v.sy, i, nlater, i, h))
     for i, (PW, PH, sx, sy, land, calls, h) in enumerate(frame_cases()):
         w(frame_calls_c(i, calls))
         w("#define FRAME%d_PW %d\n#define FRAME%d_PH %d\n#define FRAME%d_SX %d\n#define FRAME%d_SY %d\n"

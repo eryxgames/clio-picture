@@ -3,6 +3,23 @@
 Versions follow [semantic versioning](https://semver.org). Each follows CLIo's Python, which
 is the reference.
 
+## 0.7.0
+
+CLIo's mesh view: rooms as faces in a true perspective, with floors and ceilings at heights.
+
+- `clio_frame_rooms`: the faces CLIo works out (`engine/mesh.py`: each open cell's floor and
+  ceiling at its own heights, the walls' faces turned to it, the risers and lintels between
+  cells), clipped near the camera, projected and filled row by row - each pixel's ray meets
+  its face's plane, which gives the texel, the distance (into the frame's depth: monsters,
+  items and models are then hidden by what stands in front of them) and the light (open
+  land's fog, faces side on darker, a fade before the far end, 256 steps). Floors as
+  `clio_room_draw` has them, plates, belts, oil, toxic water, fire and its marks included;
+  teleporters' rings left to the caller. The walls' cover for CLIo's labels.
+- At 150 x 34 characters: E1M1 21.7 -> 3.2 ms in half blocks, 52.2 -> 5.0 ms in braille; E1M3
+  (sky, models) 38.6 -> 5.4 and 105.2 -> 8.2 ms.
+- `room.c`'s tile and fixture lookups shared with it (`src/internal.h`, not exported).
+- `tests/cases.h`: a room with every kind of face and floor, from three places.
+
 ## 0.6.0
 
 Models kept here, drawn per instance: crowds.

@@ -10,10 +10,11 @@ on a few values before it uses it, and keeps to the Python if anything differs.
 
 C99, no dependencies, Apache-2.0.
 
-## What it does (0.6)
+## What it does (0.7)
 
 | Function | CLIo's Python | Faster by |
 | --- | --- | --- |
+| `clio_frame_rooms`: rooms as faces in a true perspective, floors and ceilings at heights (CLIo's mesh view, `--render mesh`) | `Mesh.draw` (`engine/mesh.py`), all but the teleporters' rings | at 150 x 34, 6-7 times in half blocks, 10-13 times in braille |
 | `clio_mesh_new`, `clio_frame_mesh_draw`: a model's faces kept here, each instance drawn from its posed corners | `View.draw_model` | with many models in sight, a frame about twice as fast as with 0.5 (100 near: 32 -> 15.5 ms) |
 | `clio_frame_model_draw`: models projected, shaded (GGX, Fresnel, Reinhard) and drawn | `View.draw_model`, `model.pbr` | a frame with models 2-2.5 times faster than with 0.4 |
 | `clio_frame_*`: a frame kept here - walls, pictures, shadows, models' triangles, colour changes, hurt, shaking, the cockpit - and `clio_dots32` from it | `View.render` (`engine/firstperson.py`) | a room frame 2-2.5 times, in dots 6-7 times (all of 0.4) |

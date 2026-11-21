@@ -7,6 +7,7 @@
  * frame with the model's own depth. pow and exp are the C library's, through pointers. */
 #define CLIO_PICTURE_BUILD
 #include "clio_picture.h"
+#include "internal.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -27,6 +28,10 @@ void clio_maths(double (*pow_fn)(double, double), double (*exp_fn)(double))
     POW = pow_fn;
     EXP = exp_fn;
 }
+
+double clio__pow(double x, double y) { return POW(x, y); }
+
+int clio__has_maths(void) { return POW != NULL && EXP != NULL; }
 
 /* Python's float ** float, for finite numbers (CPython float_pow): 1 for a zero power, a negative base taken
  * as positive and the result turned round for an odd power, 1 ** w = 1, 0 ** w = 0 */
