@@ -609,6 +609,29 @@ MESHES = [  # a view of CLIo's tests/test_mesh.py features room: W, VR, style, w
 ]
 
 
+SLOPED_ROWS = ["#########",       # a ramp up to a gallery, and a tube with sloped sides beyond it
+               "###ltq###",
+               "###ltq###",
+               "###lcq###",
+               "#GGGGGGG#",
+               "#..RRR..#",
+               "#..rrr..#",
+               "#...@...#",
+               "#########"]
+SLOPED_LEGEND = {"r": {"slope": "n", "rise": 0.4, "height": 0.2}, "R": {"slope": "n", "rise": 0.4, "height": 0.6},
+                 "G": {"height": 0.8, "ceiling_height": 2.4},
+                 "l": {"height": 0.95, "slope": "w", "rise": 0.3, "ceiling_height": 2.3, "ceiling_slope": "e",
+                       "ceiling_rise": 0.5},
+                 "q": {"height": 0.95, "slope": "e", "rise": 0.3, "ceiling_height": 2.3, "ceiling_slope": "w",
+                       "ceiling_rise": 0.5},
+                 "t": {"height": 0.8, "ceiling_height": 2.6},
+                 "c": {"height": 0.8, "ceiling_height": 2.6, "floor": "grate"}}
+SLOPED = [  # the sloped room from the ramp's foot, and from beside the ramp (its sides' sloped tops)
+    (40, 12, "pixel", (4, 7), 0, None, 2),
+    (36, 10, "pixel", (2, 6), 1, (2.0, 6.3), 1),
+]
+
+
 def mesh_cases():
     """What CLIo's engine/mesh.py draws of a room with every kind of face and floor, as CLIo Picture is to draw it
     (teleporters left to the caller): the faces as CLIo packs them, the tiles, the sky, and sums of the pixels, the
@@ -617,8 +640,11 @@ def mesh_cases():
     import test_mesh
     from engine import mesh, picture
     out = []
-    for W, VR, style, (x, y), f, cam, phase in MESHES:
-        lv = test_mesh.features_room()
+    import test_slopes
+    rooms = [(test_mesh.features_room, m) for m in MESHES]
+    rooms += [(lambda: test_slopes.level(SLOPED_ROWS, SLOPED_LEGEND), m) for m in SLOPED]
+    for make, (W, VR, style, (x, y), f, cam, phase) in rooms:
+        lv = make()
         test_mesh.put(lv, x, y, f)
         v = firstperson.View(W, VR, style, "high", render="mesh")
         cx, cy = cam if cam is not None else (x, y)
@@ -639,7 +665,10 @@ def mesh_cases():
         h = sum_doubles(h, list(zbuf))
         h = sum_doubles(h, cov)
         h = fnv(h, b"".join(int(n).to_bytes(4, "little", signed=True) for p_ in later for n in p_))
-        out.append((v, cam6, phase, sky, list(ints), list(geo), list(xy), tiles, len(later), h))
+        slopes = [v_ for f_ in faces for v_ in (float(f_.h0b), float(f_.h1b), float(f_.gx), float(f_.gy))]
+        sloped = any(f_.gx or f_.gy or f_.h0b != f_.h0 or f_.h1b != f_.h1 for f_ in faces)
+        out.append((v, cam6, phase, sky, list(ints), list(geo), list(xy), tiles, len(later), h,
+                    slopes if sloped else None))
     return out
 
 
@@ -793,7 +822,7 @@ def main():
     w("static const double PROBE_POW75[%d][3] = {%s};\n\n" % (len(probes75), ", ".join(
         "{%r, %r, %r}" % (x, y, x ** y) for x, y in probes75)))
     pool = []                                                 # every tile of the mesh cases, once
-    for i, (v, cam6, phase, sky, ints, geo, xy, tiles, nlater, h) in enumerate(mesh_cases()):
+    for i, (v, cam6, phase, sky, ints, geo, xy, tiles, nlater, h, slopes) in enumerate(mesh_cases()):
         names = []
         for t in tiles:
             rows = t[0]
@@ -821,8 +850,12 @@ def main():
               mesh_mod.FADE, mesh_mod.NEAR, mesh_mod.SIDE, mesh_mod.NONE, phase,
               ("MESH%d_SKY" % i) if sky else "NULL", len(sky) if sky else 0, len(ints) // 9, i, i, i, len(tiles), i,
               i, i))
-        w("#define MESH%d_SX %d\n#define MESH%d_SY %d\n#define MESH%d_LATER %d\n#define MESH%d_SUM 0x%016XULL\n\n" % (
+        w("#define MESH%d_SX %d\n#define MESH%d_SY %d\n#define MESH%d_LATER %d\n#define MESH%d_SUM 0x%016XULL\n" % (
             i, v.sx, i, v.sy, i, nlater, i, h))
+        if slopes:
+            w(arr("double", "MESH%d_SLOPES" % i, slopes) + "\n\n")
+        else:
+            w("#define MESH%d_SLOPES NULL\n\n" % i)
     from engine import surface as surface_mod
     ggx = [((0.0, 0.0, 1.0), (0.0, 0.6, 0.8), (0.0, -0.6, 0.8), 0.2, 0.04),
            ((0.0, 0.0, 1.0), (0.0, 0.95, 0.31), (0.0, -0.95, 0.31), 0.5, 0.64),

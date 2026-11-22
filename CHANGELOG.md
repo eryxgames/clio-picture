@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org). Each follows CLIo's Python, which
 is the reference.
 
+## 0.9.0
+
+Slopes in the mesh view.
+
+- `clio_frame_rooms2`: `clio_frame_rooms` with slopes - for each face four more numbers: an upright
+  face's bottom and top at its far end (its top and bottom edges slope between its two ends: a
+  ramp's sides, a riser up to a slope, a wall under a sloped ceiling), a floor's or ceiling's rise
+  along x and along y (its plane through the cell's middle; each pixel its own distance, light and
+  texel, as CLIo's `Mesh.flat` works them out). With a G-buffer and low detail as 0.8 has them.
+  `clio_frame_rooms` is `clio_frame_rooms2` without slopes.
+- RØØTLESS SIM-13 (a ramp, a sewer tube with sloped sides, wet slopes, rain and lights) at 160 x 45:
+  62.8 ms in Python, 18.4 ms here.
+- `tests/cases.h`: a ramp up to a gallery and a tube with sloped sides, from its foot and from
+  beside the ramp.
+
 ## 0.8.0
 
 Surfaces lit by their materials, low detail, terraces, the picture turned over and turned.

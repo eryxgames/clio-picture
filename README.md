@@ -10,10 +10,11 @@ on a few values before it uses it, and keeps to the Python if anything differs.
 
 C99, no dependencies, Apache-2.0.
 
-## What it does (0.8)
+## What it does (0.9)
 
 | Function | CLIo's Python | Faster by |
 | --- | --- | --- |
+| `clio_frame_rooms2`: the mesh view with slopes - sloped floors and ceilings (ramps, a tube's sides) and the sloped edges of the faces beside them | `Mesh.draw` with slopes (`engine/mesh.py`) | SIM-13 at 160 x 45, lit and raining: 62.8 -> 18.4 ms |
 | `clio_frame_more`, `clio_frame_surface`: surfaces lit by their materials - a G-buffer the rooms fill and the things mark, then ambient, lamps, GGX highlights, glow, floors' dim reflections, wet floors and the rain's splashes, fog and lightning | `surface.shade`, `surface.splashes` (`engine/surface.py`) and the G-buffer of `Mesh.draw` | a lit picture 5-6 times (E1M8 at 160 x 45: 46 -> 8.5 ms) |
 | `clio_frame_more`'s `low`: the mesh view's floors and ceilings at half width | `Mesh.flat` in low detail | - |
 | `clio_land_terraced`: open land with terraces (map cells standing higher) | `Land.cast`, `Land.ground` | as `clio_land_draw` |

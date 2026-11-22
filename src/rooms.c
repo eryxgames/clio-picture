@@ -56,38 +56,50 @@ static void fog_of(const clio_rooms *r, double z, double *fog, double *fade)
     *fade = f < 0.0 ? 0.0 : f > 1.0 ? 1.0 : f;
 }
 
-/* Face.corners */
-static void corners(const clio_rooms *r, int i, double c[4][3])
+/* Face.corners (0.9: slopes - an upright face's bottom and top at its hi end, a floor's or ceiling's rise) */
+static void corners(const clio_rooms *r, const double *slopes, int i, double c[4][3])
 {
     const int32_t *n = r->ints + (size_t)i * 9;
     const double *g = r->geo + (size_t)i * 7;
     const int64_t *xy = r->xy + (size_t)i * 4;
+    const double *sl = slopes ? slopes + (size_t)i * 4 : NULL;
     double at = g[0], lo = g[1], hi = g[2], h0 = g[3], h1 = g[4], opened = g[6];
+    double h0b = sl ? sl[0] : h0, h1b = sl ? sl[1] : h1;
     if (n[0] == CLIO_FACE_FLOOR || n[0] == CLIO_FACE_CEILING) {
         double x = (double)xy[0], y = (double)xy[1];
+        if (sl && (sl[2] != 0.0 || sl[3] != 0.0)) {          /* a slope: each corner on its plane */
+            double gx = sl[2] * 0.5, gy = sl[3] * 0.5;
+            c[0][0] = x - 0.5; c[0][1] = y - 0.5; c[0][2] = at - gx - gy;
+            c[1][0] = x + 0.5; c[1][1] = y - 0.5; c[1][2] = at + gx - gy;
+            c[2][0] = x + 0.5; c[2][1] = y + 0.5; c[2][2] = at + gx + gy;
+            c[3][0] = x - 0.5; c[3][1] = y + 0.5; c[3][2] = at - gx + gy;
+            return;
+        }
         c[0][0] = x - 0.5; c[0][1] = y - 0.5; c[0][2] = at;
         c[1][0] = x + 0.5; c[1][1] = y - 0.5; c[1][2] = at;
         c[2][0] = x + 0.5; c[2][1] = y + 0.5; c[2][2] = at;
         c[3][0] = x - 0.5; c[3][1] = y + 0.5; c[3][2] = at;
         return;
     }
-    if (opened != 0.0)                                       /* a door slides up */
+    if (opened != 0.0) {                                     /* a door slides up */
         h0 = h0 + opened * (h1 - h0);
+        h0b = h0b + opened * (h1b - h0b);
+    }
     if (n[0] == CLIO_FACE_XWALL) {
         c[0][0] = at; c[0][1] = lo; c[0][2] = h0;
-        c[1][0] = at; c[1][1] = hi; c[1][2] = h0;
-        c[2][0] = at; c[2][1] = hi; c[2][2] = h1;
+        c[1][0] = at; c[1][1] = hi; c[1][2] = h0b;
+        c[2][0] = at; c[2][1] = hi; c[2][2] = h1b;
         c[3][0] = at; c[3][1] = lo; c[3][2] = h1;
     } else {
         c[0][0] = lo; c[0][1] = at; c[0][2] = h0;
-        c[1][0] = hi; c[1][1] = at; c[1][2] = h0;
-        c[2][0] = hi; c[2][1] = at; c[2][2] = h1;
+        c[1][0] = hi; c[1][1] = at; c[1][2] = h0b;
+        c[2][0] = hi; c[2][1] = at; c[2][2] = h1b;
         c[3][0] = lo; c[3][1] = at; c[3][2] = h1;
     }
 }
 
 /* Mesh.spans: the face's rows (y, first column, column after the last) into spans (3 a row); their number, or -1 */
-static int spans_of(const clio_rooms *r, int i, double ex, double ey, int *spans)
+static int spans_of(const clio_rooms *r, const double *slopes, int i, double ex, double ey, int *spans)
 {
     const int32_t *n = r->ints + (size_t)i * 9;
     double c[4][3];
@@ -99,7 +111,7 @@ static int spans_of(const clio_rooms *r, int i, double ex, double ey, int *spans
         double s = (n[0] == CLIO_FACE_XWALL ? n[1] : 0) * r->fx + (n[0] == CLIO_FACE_YWALL ? n[1] : 0) * r->fy;
         side_on = fabs(s) < 0.5;
     }
-    corners(r, i, c);
+    corners(r, slopes, i, c);
     for (k = 0; k < 4; k++) {                                /* into the camera's space: across, ahead, height */
         double dx = c[k][0] - ex, dy = c[k][1] - ey;
         double d = dx * r->fx + dy * r->fy;
@@ -188,6 +200,7 @@ typedef struct {
     int nlater;
     const clio_more *g;     /* the G-buffer (0.8), or NULL */
     int step;               /* 2: floors and ceilings at half width */
+    const double *slopes;   /* 0.9: nfaces * 4, or NULL */
 } ctx;
 
 /* a face's material, and whether colour c glows in it */
@@ -225,8 +238,8 @@ static void flat(ctx *x_, int i, const int *spans, int n)
     const int32_t *ni = r->ints + (size_t)i * 9;
     const double *g = r->geo + (size_t)i * 7;
     const int64_t *xy = r->xy + (size_t)i * 4;
-    int floor_ = ni[0] == CLIO_FACE_FLOOR, s, gm;
-    double dh = r->eye - g[0];
+    int floor_ = ni[0] == CLIO_FACE_FLOOR, s, gm, sloped;
+    double dh = r->eye - g[0], gx, gy, c0 = 0.0;
     int64_t ix = xy[0], iy = xy[1];
     clio_room_cell cell;
     int PW = r->pw;
@@ -245,27 +258,51 @@ static void flat(ctx *x_, int i, const int *spans, int n)
     cell.x = xy[2];
     cell.y = xy[3];
     gm = x_->g ? mat_of(x_, i) : 0;
+    {
+        const double *sl = x_->slopes ? x_->slopes + (size_t)i * 4 : NULL;
+        gx = sl ? sl[2] : 0.0;
+        gy = sl ? sl[3] : 0.0;
+    }
+    sloped = gx != 0.0 || gy != 0.0;
+    if (sloped)                                               /* where a ray meets the slope's plane: c0 / (sb + ...) */
+        c0 = r->eye - g[0] - gx * (x_->ex - (double)ix) - gy * (x_->ey - (double)iy);
     for (s = 0; s < n; s++) {
         int y = spans[s * 3], x, x0 = spans[s * 3 + 1], x1 = spans[s * 3 + 2], step = x_->step;
-        double sb = x_->sb[y], d, z, fog, fade;
-        int q;
+        double sb = x_->sb[y], d = 0.0, z = 0.0, fog = 0.0, fade = 0.0;
+        int q = 0;
         uint32_t *row = x_->f->rgb + (size_t)y * PW;
         double *zbuf = x_->f->depth + (size_t)y * PW;
-        if (sb == 0.0)
-            continue;
-        d = dh / sb;
-        if (d <= r->near)
-            continue;
-        z = d - r->z0;
-        fog_of(r, z, &fog, &fade);
-        q = (int)(fog * fade * 256.0);
+        if (!sloped) {
+            if (sb == 0.0)
+                continue;
+            d = dh / sb;
+            if (d <= r->near)
+                continue;
+            z = d - r->z0;
+            fog_of(r, z, &fog, &fade);
+            q = (int)(fog * fade * 256.0);
+        }
         for (x = step == 2 ? x0 - (x0 & 1) : x0; x < x1; x += step) {   /* low: pairs from an even column */
             double ux, uy;
             uint32_t c = NONE, v;
-            int one = x >= x0 && z < zbuf[x], two = step == 2 && x + 1 < x1 && z < zbuf[x + 1], xs, qq = q, hot = 0;
+            int one, two, xs, qq, hot = 0;
+            xs = x >= x0 ? x : x + 1;                         /* the pixel whose ray gives the colour */
+            if (sloped) {                                     /* each pixel its own distance */
+                double den = sb + gx * x_->dirx[xs] + gy * x_->diry[xs];
+                if (den == 0.0)
+                    continue;
+                d = c0 / den;
+                if (d <= r->near)
+                    continue;
+                z = d - r->z0;
+                fog_of(r, z, &fog, &fade);
+                q = (int)(fog * fade * 256.0);
+            }
+            qq = q;
+            one = x >= x0 && z < zbuf[x];
+            two = step == 2 && x + 1 < x1 && z < zbuf[x + 1];
             if (!(one || two))
                 continue;
-            xs = x >= x0 ? x : x + 1;                         /* the pixel whose ray gives the colour */
             ux = x_->ex + d * x_->dirx[xs] - (double)ix;
             uy = x_->ey + d * x_->diry[xs] - (double)iy;
             ux = ux < -0.5 ? -0.5 : ux > 0.4999 ? 0.4999 : ux;
@@ -385,7 +422,7 @@ static void upright(ctx *x_, int i, const int *spans, int n, double *col_d, doub
                                      : (side > 0 ? CLIO_SURF_WALL_PY : CLIO_SURF_WALL_NY);
         gm = mat_of(x_, i);
     }
-    corners(r, i, c);
+    corners(r, x_->slopes, i, c);
     for (k = 0; k < 4; k++) {
         double v = ux * c[k][0] + uy * c[k][1];
         if (k == 0 || v < left)
@@ -449,6 +486,11 @@ static void upright(ctx *x_, int i, const int *spans, int n, double *col_d, doub
 }
 
 int clio_frame_rooms(clio_frame *f, const clio_rooms *r, int32_t *later, int *later_n)
+{
+    return clio_frame_rooms2(f, r, NULL, later, later_n);
+}
+
+int clio_frame_rooms2(clio_frame *f, const clio_rooms *r, const double *slopes, int32_t *later, int *later_n)
 {
     ctx c = {0};
     double *dirx = NULL, *diry = NULL, *sb = NULL, *col_d = NULL, *col_z = NULL;
@@ -514,8 +556,9 @@ int clio_frame_rooms(clio_frame *f, const clio_rooms *r, int32_t *later, int *la
     c.walls = walls;
     c.later = later;
     c.nlater = 0;
+    c.slopes = slopes;
     for (i = 0; i < r->nfaces; i++) {
-        int kind = r->ints[(size_t)i * 9], n = spans_of(r, i, c.ex, c.ey, spans);
+        int kind = r->ints[(size_t)i * 9], n = spans_of(r, slopes, i, c.ex, c.ey, spans);
         if (n <= 0)
             continue;
         if (kind == CLIO_FACE_FLOOR || kind == CLIO_FACE_CEILING)

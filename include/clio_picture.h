@@ -19,6 +19,7 @@
  * 0.7: rooms as faces in a true perspective, with floors and ceilings at heights (CLIo's mesh view).
  * 0.8: surfaces lit by their materials (a G-buffer, lamps, highlights, glow, reflections, wet floors, the rain's
  *      splashes), the mesh view's floors at half width (low detail), the picture turned over, and turned.
+ * 0.9: slopes in the mesh view: sloped floors and ceilings, and the sloped edges of the faces beside them.
  */
 #ifndef CLIO_PICTURE_H
 #define CLIO_PICTURE_H
@@ -41,9 +42,9 @@ extern "C" {
 #  define CLIO_PICTURE_API __attribute__((visibility("default")))
 #endif
 
-#define CLIO_PICTURE_VERSION "0.8.0"
+#define CLIO_PICTURE_VERSION "0.9.0"
 
-/* "0.8.0" */
+/* "0.9.0" */
 CLIO_PICTURE_API const char *clio_picture_version(void);
 
 /* A lattice point's value, 0..1 (land._h): a 32-bit hash of the point and the seed. */
@@ -387,6 +388,12 @@ typedef struct clio_rooms {
  * pixel's index and its face's (2 numbers each) go into later (room for 2 * pw * ph), their number into *later_n; the
  * pixel's distance is set. Returns 0; -1 for bad numbers; -2 without clio_maths; -3 out of memory. */
 CLIO_PICTURE_API int clio_frame_rooms(clio_frame *f, const clio_rooms *r, int32_t *later, int *later_n);
+
+/* 0.9: clio_frame_rooms with slopes - slopes: nfaces * 4 numbers, for an upright face its bottom and top at its hi end
+ * (geo's h0 and h1 are at its lo end: its top and bottom edges slope between them), for a floor or a ceiling how much
+ * it rises a cell along x and along y (its plane through `at` at the cell's middle; each pixel its own distance) */
+CLIO_PICTURE_API int clio_frame_rooms2(clio_frame *f, const clio_rooms *r, const double *slopes, int32_t *later,
+                                       int *later_n);
 
 /* ---- 0.8: surfaces lit by their materials (CLIo's engine/surface.py) ----------------------------------------
  * A frame can keep, beside its pixels, what each pixel shows (its kind), its material and the light the player's

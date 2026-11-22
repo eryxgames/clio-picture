@@ -355,7 +355,8 @@ static void same(const char *what, double got, double want)
 }
 
 /* CLIo's mesh view (0.7): the faces into a frame with a depth; its pixels, distances, cover and the pixels left */
-static void mesh_case(const char *what, const clio_rooms *r, int sx, int sy, int want_later, uint64_t want)
+static void mesh_case(const char *what, const clio_rooms *r, const double *slopes, int sx, int sy, int want_later,
+                      uint64_t want)
 {
     size_t n = (size_t)r->pw * r->ph, i;
     int W = r->pw / sx, VR = r->ph / sy, nl = -1, k;
@@ -375,7 +376,7 @@ static void mesh_case(const char *what, const clio_rooms *r, int sx, int sy, int
     f.gen = 0;
     for (i = 0; i < (size_t)W * VR; i++)
         f.cover[i] = 99.0;
-    if (clio_frame_rooms(&f, r, later, &nl) != 0) {
+    if ((slopes ? clio_frame_rooms2(&f, r, slopes, later, &nl) : clio_frame_rooms(&f, r, later, &nl)) != 0) {
         printf("FAIL %s: not drawn\n", what);
         bad++;
     } else {
@@ -594,10 +595,15 @@ int main(void)
         for (k = 0; k < 3; k++)
             same = same && pow(PROBE_POW75[k][0], PROBE_POW75[k][1]) == PROBE_POW75[k][2];
         if (same) {
-            mesh_case("the mesh view, half blocks", &MESH0, MESH0_SX, MESH0_SY, MESH0_LATER, MESH0_SUM);
-            mesh_case("the mesh view, braille, a teleporter's rings left", &MESH1, MESH1_SX, MESH1_SY, MESH1_LATER,
-                      MESH1_SUM);
-            mesh_case("the mesh view, faces clipped near the camera", &MESH2, MESH2_SX, MESH2_SY, MESH2_LATER, MESH2_SUM);
+            mesh_case("the mesh view, half blocks", &MESH0, MESH0_SLOPES, MESH0_SX, MESH0_SY, MESH0_LATER, MESH0_SUM);
+            mesh_case("the mesh view, braille, a teleporter's rings left", &MESH1, MESH1_SLOPES, MESH1_SX, MESH1_SY,
+                      MESH1_LATER, MESH1_SUM);
+            mesh_case("the mesh view, faces clipped near the camera", &MESH2, MESH2_SLOPES, MESH2_SX, MESH2_SY,
+                      MESH2_LATER, MESH2_SUM);
+            mesh_case("slopes: a ramp up to a gallery, a tube with sloped sides", &MESH3, MESH3_SLOPES, MESH3_SX,
+                      MESH3_SY, MESH3_LATER, MESH3_SUM);
+            mesh_case("slopes: the ramp's sides from beside it", &MESH4, MESH4_SLOPES, MESH4_SX, MESH4_SY, MESH4_LATER,
+                      MESH4_SUM);
         } else
             printf("(the mesh view not compared: this machine's pow differs from the one the cases were made with)\n");
     }
