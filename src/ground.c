@@ -34,6 +34,11 @@ typedef struct {
     int64_t last_kx, last_ky;
     const clio_chunk *last;
     int failed;   /* -2: the caller gave no chunk, -3: no memory */
+    /* 0.8: terraces - map cells standing higher than the pad (their own heights over base) */
+    int64_t *txy;
+    double *th;
+    size_t tcap;
+    double base;
 } chunks;
 
 static size_t hash_key(int64_t kx, int64_t ky, size_t cap)
@@ -103,9 +108,58 @@ found:
     return ch;
 }
 
+/* a terrace's height over the base at (x, y): 1 and *h, or 0 for none */
+static int terrace_at(const chunks *t, int64_t x, int64_t y, double *h)
+{
+    size_t j;
+    if (!t->tcap)
+        return 0;
+    j = hash_key(x, y, t->tcap);
+    while (t->th[j] == t->th[j]) {                            /* NaN marks an empty slot */
+        if (t->txy[2 * j] == x && t->txy[2 * j + 1] == y) {
+            *h = t->th[j];
+            return 1;
+        }
+        j = (j + 1) & (t->tcap - 1);
+    }
+    return 0;
+}
+
+static int terraces_make(chunks *t, int n, const int64_t *xy, const double *h)
+{
+    size_t cap = 16;
+    int i;
+    if (n <= 0)
+        return 1;
+    while (cap < (size_t)n * 2)
+        cap *= 2;
+    t->txy = (int64_t *)malloc(cap * 2 * sizeof(int64_t));
+    t->th = (double *)malloc(cap * sizeof(double));
+    if (!t->txy || !t->th)
+        return 0;
+    t->tcap = cap;
+    for (i = 0; i < (int)cap; i++)
+        t->th[i] = NAN;
+    for (i = 0; i < n; i++) {
+        size_t j = hash_key(xy[2 * i], xy[2 * i + 1], cap);
+        while (t->th[j] == t->th[j] && !(t->txy[2 * j] == xy[2 * i] && t->txy[2 * j + 1] == xy[2 * i + 1]))
+            j = (j + 1) & (cap - 1);
+        t->txy[2 * j] = xy[2 * i];
+        t->txy[2 * j + 1] = xy[2 * i + 1];
+        t->th[j] = h[i];
+    }
+    return 1;
+}
+
 static int height_at(chunks *t, int64_t x, int64_t y, double *h)
 {
-    const clio_chunk *ch = chunk_at(t, chunk_of(x), chunk_of(y));
+    const clio_chunk *ch;
+    double tr;
+    if (terrace_at(t, x, y, &tr)) {                           /* Land.ground: a terrace's cell at its own height */
+        *h = t->base + tr;
+        return 1;
+    }
+    ch = chunk_at(t, chunk_of(x), chunk_of(y));
     if (!ch)
         return 0;
     *h = ch->height[cell_in(y) * 16 + cell_in(x)];
@@ -200,6 +254,13 @@ static int grain(int c, double g)
 int clio_land_draw(const clio_ground *g, clio_chunk_fn chunk, void *user, const uint8_t *sky, int sky_rows,
                    uint32_t *rgb, double *depth)
 {
+    return clio_land_terraced(g, 0, NULL, NULL, chunk, user, sky, sky_rows, rgb, depth);
+}
+
+int clio_land_terraced(const clio_ground *g, int nterraces, const int64_t *terrace_xy, const double *terrace_h,
+                       clio_chunk_fn chunk, void *user, const uint8_t *sky, int sky_rows, uint32_t *rgb,
+                       double *depth)
+{
     int PW, PH, yh, step, ncols, alive, i, s, x, y;
     int *ybuf = NULL, *cols = NULL;
     double *offs = NULL;
@@ -212,7 +273,8 @@ int clio_land_draw(const clio_ground *g, clio_chunk_fn chunk, void *user, const 
 
     if (!g || !chunk || !rgb || !depth || g->pw <= 0 || g->ph <= 0 || g->step < 1 || g->step > 2 ||
         g->steps < 0 || (g->steps && (!g->d || !g->fog)) || sky_rows < 0 || (sky_rows && !sky) ||
-        (g->stamps > 0 && (!g->stamp_xy || !g->stamp_tex)))
+        (g->stamps > 0 && (!g->stamp_xy || !g->stamp_tex)) || nterraces < 0 ||
+        (nterraces > 0 && (!terrace_xy || !terrace_h)))
         return -1;
     PW = g->pw;
     PH = g->ph;
@@ -240,7 +302,9 @@ int clio_land_draw(const clio_ground *g, clio_chunk_fn chunk, void *user, const 
     offs = (double *)malloc(sizeof(double) * ncols);
     t.fn = chunk;
     t.user = user;
-    if (!ybuf || !cols || !offs || !grow(&t) || !stamps_make(&st, g)) {
+    t.base = g->base;
+    if (!ybuf || !cols || !offs || !grow(&t) || !stamps_make(&st, g) ||
+        !terraces_make(&t, nterraces, terrace_xy, terrace_h)) {
         result = -3;
         goto done;
     }
@@ -294,7 +358,10 @@ int clio_land_draw(const clio_ground *g, clio_chunk_fn chunk, void *user, const 
             kind = ch->kind[k];
             tex = stamp_at(&st, ix, iy);
             if (tex != -3) {                                 /* a map stands here: its floor */
+                double tr;
                 h = g->base;
+                if (terrace_at(&t, ix, iy, &tr))               /* a terrace: higher */
+                    h = g->base + tr;
                 if (tex >= 0) {
                     double u = wx + 0.5 - ix, v = wy + 0.5 - iy;
                     int tw = g->tex_w[tex], th = g->tex_h[tex];
@@ -356,5 +423,7 @@ done:
     free(t.slots);
     free(st.xy);
     free(st.tex);
+    free(t.txy);
+    free(t.th);
     return result;
 }

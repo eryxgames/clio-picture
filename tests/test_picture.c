@@ -405,6 +405,117 @@ static void mesh_case(const char *what, const clio_rooms *r, int sx, int sy, int
     free(f.zgen);
 }
 
+/* CLIo's engine/surface.py (0.8): a picture and its G-buffer lit; a sum of its pixels after */
+static void surface_case(const char *what, const clio_surface *s, const uint32_t *rgb, const double *depth,
+                         const uint8_t *kinds, const uint8_t *mats, const uint8_t *own, uint64_t want)
+{
+    size_t n = (size_t)s->pw * s->ph, i;
+    clio_frame f = {0};
+    clio_more m = {0};
+    uint64_t h = 0xCBF29CE484222325ULL;
+    f.pw = s->pw;
+    f.ph = s->ph;
+    f.sx = 1;
+    f.sy = 2;
+    f.rgb = (uint32_t *)malloc(n * 4);
+    f.depth = (double *)malloc(n * 8);
+    m.kinds = (uint8_t *)malloc(n);
+    m.mats = (uint8_t *)malloc(n);
+    m.own = (uint8_t *)malloc(n);
+    memcpy(f.rgb, rgb, n * 4);
+    memcpy(f.depth, depth, n * 8);
+    memcpy(m.kinds, kinds, n);
+    memcpy(m.mats, mats, n);
+    memcpy(m.own, own, n);
+    if (clio_frame_surface(&f, s) != -1) {                  /* nothing handed over beside the frame: refused */
+        printf("FAIL %s: lit without a G-buffer\n", what);
+        bad++;
+    }
+    clio_frame_more(&f, &m);
+    if (clio_frame_surface(&f, s) != 0) {
+        printf("FAIL %s: not lit\n", what);
+        bad++;
+    } else {
+        for (i = 0; i < n; i++) {
+            uint32_t c = f.rgb[i];
+            uint8_t b4[4] = {(uint8_t)c, (uint8_t)(c >> 8), (uint8_t)(c >> 16), (uint8_t)(c >> 24)};
+            h = fnv(h, b4, 4);
+        }
+        if (h != want) {
+            printf("FAIL %s: sum %016llX (%016llX)\n", what, (unsigned long long)h, (unsigned long long)want);
+            bad++;
+        }
+    }
+    clio_frame_more(&f, NULL);
+    free(f.rgb);
+    free(f.depth);
+    free(m.kinds);
+    free(m.mats);
+    free(m.own);
+}
+
+static void same_ggx(int k)
+{
+    char what[32];
+    snprintf(what, sizeof what, "ggx %d", k);
+    same(what, clio_ggx(GGX[k], GGX[k] + 3, GGX[k] + 6, GGX[k][9], GGX[k][10]), GGX[k][11]);
+}
+
+static uint32_t tilt_pixel(int x, int y)
+{
+    return ((uint32_t)((x * 37 + y * 11) & 255) << 16) | ((uint32_t)((x * 5 + y * 71) & 255) << 8) |
+           (uint32_t)((x * y * 3 + 7) & 255);
+}
+
+/* firstperson.tilt (0.8), and the picture turned over */
+static void turn_cases(void)
+{
+    uint32_t src[TILT_W * TILT_H], out[TILT_W * TILT_H];
+    int x, y, k;
+    for (y = 0; y < TILT_H; y++)
+        for (x = 0; x < TILT_W; x++)
+            src[y * TILT_W + x] = tilt_pixel(x, y);
+    for (k = 0; k < (int)(sizeof TILT / sizeof TILT[0]); k++) {
+        uint64_t h = 0xCBF29CE484222325ULL;
+        if (clio_tilt(src, TILT_W, TILT_H, TILT[k][1], TILT[k][2], 0x0A0A0Eu, out) != 0) {
+            printf("FAIL tilt %g: not turned\n", TILT[k][0]);
+            bad++;
+            continue;
+        }
+        for (y = 0; y < TILT_H; y += 2)                    /* as the Python sums cells: top then bottom of each */
+            for (x = 0; x < TILT_W; x++) {
+                uint32_t c[2] = {out[y * TILT_W + x], out[(y + 1) * TILT_W + x]};
+                int j;
+                for (j = 0; j < 2; j++) {
+                    uint8_t b4[4] = {(uint8_t)c[j], (uint8_t)(c[j] >> 8), (uint8_t)(c[j] >> 16), (uint8_t)(c[j] >> 24)};
+                    h = fnv(h, b4, 4);
+                }
+            }
+        if (h != TILT_SUM[k]) {
+            printf("FAIL tilt %g: sum %016llX (%016llX)\n", TILT[k][0], (unsigned long long)h,
+                   (unsigned long long)TILT_SUM[k]);
+            bad++;
+        }
+    }
+    {
+        uint32_t rgb[6] = {1, 2, 3, 4, 5, 6};
+        double depth[6] = {1, 2, 3, 4, 5, 6}, cover[6] = {10, 20, 30, 40, 50, 60};
+        clio_frame f = {0};
+        f.pw = 3;
+        f.ph = 2;
+        f.sx = 1;
+        f.sy = 1;
+        f.rgb = rgb;
+        f.depth = depth;
+        f.cover = cover;
+        clio_frame_flip(&f);
+        if (rgb[0] != 6 || rgb[2] != 4 || rgb[3] != 3 || rgb[5] != 1 || depth[1] != 5 || cover[0] != 60 || cover[4] != 20) {
+            printf("FAIL the picture turned over\n");
+            bad++;
+        }
+    }
+}
+
 int main(void)
 {
     double out[6];
@@ -500,6 +611,23 @@ int main(void)
             bad++;
         }
     }
+    {
+        int same = 1, k;
+        for (k = 0; k < 5; k++)
+            same = same && pow(PROBE_POW[k][0], PROBE_POW[k][1]) == PROBE_POW[k][2];
+        for (k = 0; k < 2; k++)
+            same = same && exp(PROBE_EXP[k][0]) == PROBE_EXP[k][1];
+        if (same) {
+            for (k = 0; k < (int)(sizeof GGX / sizeof GGX[0]); k++)
+                same_ggx(k);
+            surface_case("surfaces: lamps, a model, chrome, glowing windows, a polished floor", &SURF0, SURF0_RGB,
+                         SURF0_DEPTH, SURF0_KINDS, SURF0_MATS, SURF0_OWN, SURF0_SUM);
+            surface_case("surfaces: a yard in the rain at night, wet, splashing", &SURF1, SURF1_RGB, SURF1_DEPTH,
+                         SURF1_KINDS, SURF1_MATS, SURF1_OWN, SURF1_SUM);
+        } else
+            printf("(surfaces not compared: this machine's pow or exp differs from the one the cases were made with)\n");
+    }
+    turn_cases();
     dots32_case();
     room_case("room ahead", &ROOM0, ROOM0_SUM, ROOM0_LATER, ROOM0_FIRST_LATER);
     room_case("room sideways, low detail", &ROOM1, ROOM1_SUM, ROOM1_LATER, ROOM1_FIRST_LATER);

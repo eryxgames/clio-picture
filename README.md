@@ -10,10 +10,14 @@ on a few values before it uses it, and keeps to the Python if anything differs.
 
 C99, no dependencies, Apache-2.0.
 
-## What it does (0.7)
+## What it does (0.8)
 
 | Function | CLIo's Python | Faster by |
 | --- | --- | --- |
+| `clio_frame_more`, `clio_frame_surface`: surfaces lit by their materials - a G-buffer the rooms fill and the things mark, then ambient, lamps, GGX highlights, glow, floors' dim reflections, wet floors and the rain's splashes, fog and lightning | `surface.shade`, `surface.splashes` (`engine/surface.py`) and the G-buffer of `Mesh.draw` | a lit picture 5-6 times (E1M8 at 160 x 45: 46 -> 8.5 ms) |
+| `clio_frame_more`'s `low`: the mesh view's floors and ceilings at half width | `Mesh.flat` in low detail | - |
+| `clio_land_terraced`: open land with terraces (map cells standing higher) | `Land.cast`, `Land.ground` | as `clio_land_draw` |
+| `clio_frame_flip`, `clio_tilt`: the picture turned over (on the ceiling), and turned (up a wall) | `View.turned_over`, `tilt` | - |
 | `clio_frame_rooms`: rooms as faces in a true perspective, floors and ceilings at heights (CLIo's mesh view, `--render mesh`) | `Mesh.draw` (`engine/mesh.py`), all but the teleporters' rings | at 150 x 34, 6-7 times in half blocks, 10-13 times in braille |
 | `clio_mesh_new`, `clio_frame_mesh_draw`: a model's faces kept here, each instance drawn from its posed corners | `View.draw_model` | with many models in sight, a frame about twice as fast as with 0.5 (100 near: 32 -> 15.5 ms) |
 | `clio_frame_model_draw`: models projected, shaded (GGX, Fresnel, Reinhard) and drawn | `View.draw_model`, `model.pbr` | a frame with models 2-2.5 times faster than with 0.4 |
@@ -58,8 +62,16 @@ CLIo): CLIo still decides what is drawn where, nearest last, and asks the librar
 each wall, picture and triangle into the frame; what the library has no call for (a glow, a
 blast) CLIo draws through rows that read and write the frame's pixels.
 
-Next: what is left in CLIo's Python - glows and blasts (they need a hypotenuse), the order of
-things in a picture, and the cells' tuples. See `include/clio_picture.h` for the interface.
+From 0.8 a frame can keep a G-buffer beside its pixels - what each pixel shows, its material, the
+light the player's view gives it - handed over with `clio_frame_more` for the calls that thread makes
+next (the frame itself is as 0.4 made it, so an older CLIo is not upset by it). The rooms then draw the
+surfaces' own colours, the things drawn after mark it as they land, and `clio_frame_surface` lights
+the picture by it - lamps, highlights, reflections, the rain's splashes - to the same pixel as CLIo's
+Python. It needs `pow` and `exp` as the models do, and `sqrt`, which C and Python both round exactly.
+
+Next: what is left in CLIo's Python - glows and blasts (they need a hypotenuse), the rain in the air,
+the order of things in a picture, and the cells' tuples. See `include/clio_picture.h` for the
+interface.
 
 ## Getting it
 

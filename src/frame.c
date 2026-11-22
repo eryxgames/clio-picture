@@ -6,6 +6,7 @@
  * so the same pixels come out. What needs a hypotenuse, a power or a logarithm stays with the caller. */
 #define CLIO_PICTURE_BUILD
 #include "clio_picture.h"
+#include "internal.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -56,9 +57,21 @@ static int index_in(double v, int n)
     return (int)v < n - 1 ? (int)v : n - 1;
 }
 
-/* a pixel, as DepthRow writes it: where the land there is further off than what is drawn now */
+/* a pixel, as DepthRow writes it: where the land there is further off than what is drawn now - and with a G-buffer
+ * while things are drawn, as surface.GRow: a thing where the pixel is as far or further, its distance and kind kept */
 static void put(clio_frame *f, size_t i, uint32_t c)
 {
+    const clio_more *m = clio__more(f);
+    if (m && m->marking && m->thing && m->kinds && f->depth) {
+        if (f->depth[i] >= f->cur_z) {
+            f->rgb[i] = c;
+            if (f->cur_z > -1e8)
+                f->depth[i] = f->cur_z;
+            m->kinds[i] = CLIO_SURF_THING;
+            m->mats[i] = m->glow ? CLIO_GLOW : 0;
+        }
+        return;
+    }
     if (!f->depth || f->depth[i] > f->cur_z)
         f->rgb[i] = c;
 }

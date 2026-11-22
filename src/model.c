@@ -56,6 +56,10 @@ static double py_pow(double iv, double iw)
     return negate ? -iv : iv;
 }
 
+double clio__pypow(double x, double y) { return py_pow(x, y); }
+
+double clio__exp(double x) { return EXP(x); }
+
 static double maxd(double a, double b) { return b > a ? b : a; }   /* Python's max(a, b): a unless b is more */
 static double mind(double a, double b) { return b < a ? b : a; }   /* min(a, b): a unless b is less */
 

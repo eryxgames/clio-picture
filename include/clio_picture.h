@@ -17,6 +17,8 @@
  * 0.5: models projected, shaded and drawn here.
  * 0.6: models kept here as meshes, drawn per instance.
  * 0.7: rooms as faces in a true perspective, with floors and ceilings at heights (CLIo's mesh view).
+ * 0.8: surfaces lit by their materials (a G-buffer, lamps, highlights, glow, reflections, wet floors, the rain's
+ *      splashes), the mesh view's floors at half width (low detail), the picture turned over, and turned.
  */
 #ifndef CLIO_PICTURE_H
 #define CLIO_PICTURE_H
@@ -39,9 +41,9 @@ extern "C" {
 #  define CLIO_PICTURE_API __attribute__((visibility("default")))
 #endif
 
-#define CLIO_PICTURE_VERSION "0.7.0"
+#define CLIO_PICTURE_VERSION "0.8.0"
 
-/* "0.7.0" */
+/* "0.8.0" */
 CLIO_PICTURE_API const char *clio_picture_version(void);
 
 /* A lattice point's value, 0..1 (land._h): a 32-bit hash of the point and the seed. */
@@ -108,6 +110,12 @@ typedef struct clio_ground {
  * memory. */
 CLIO_PICTURE_API int clio_land_draw(const clio_ground *g, clio_chunk_fn chunk, void *user,
                                     const uint8_t *sky, int sky_rows, uint32_t *rgb, double *depth);
+
+/* 0.8: clio_land_draw with terraces - nterraces map cells (terrace_xy: x, y of each) standing terrace_h over the base:
+ * their floors drawn that high, and the ground blended from them where it meets them (Land.ground) */
+CLIO_PICTURE_API int clio_land_terraced(const clio_ground *g, int nterraces, const int64_t *terrace_xy,
+                                        const double *terrace_h, clio_chunk_fn chunk, void *user, const uint8_t *sky,
+                                        int sky_rows, uint32_t *rgb, double *depth);
 
 /* ---- 0.2: the sky over open cells, as CLIo's engine/firstperson.py sky_picture paints it ------------ */
 
@@ -379,6 +387,85 @@ typedef struct clio_rooms {
  * pixel's index and its face's (2 numbers each) go into later (room for 2 * pw * ph), their number into *later_n; the
  * pixel's distance is set. Returns 0; -1 for bad numbers; -2 without clio_maths; -3 out of memory. */
 CLIO_PICTURE_API int clio_frame_rooms(clio_frame *f, const clio_rooms *r, int32_t *later, int *later_n);
+
+/* ---- 0.8: surfaces lit by their materials (CLIo's engine/surface.py) ----------------------------------------
+ * A frame can keep, beside its pixels, what each pixel shows (its kind), its material and the light the player's
+ * own view gives it (a G-buffer): clio_frame_rooms then draws the surfaces' own colours and fills it, the things
+ * drawn after mark it, and clio_frame_surface lights the picture by it. The frame itself is as 0.4 made it: what 0.8
+ * adds is handed over beside it (clio_frame_more), for the calls made on this thread, until it is taken back (NULL).
+ * Square roots are sqrt's (correctly rounded, as Python's); pow and exp are clio_maths'. */
+enum { CLIO_SURF_SKY = 0, CLIO_SURF_FLOOR = 1, CLIO_SURF_CEILING = 2, CLIO_SURF_WALL_PX = 3, CLIO_SURF_WALL_NX = 4,
+       CLIO_SURF_WALL_PY = 5, CLIO_SURF_WALL_NY = 6, CLIO_SURF_THING = 7 };
+#define CLIO_GLOW 0x80          /* in a pixel's material: its texel gives light of its own */
+
+typedef struct clio_more {
+    uint8_t *kinds, *mats, *own;    /* pw * ph each: what each pixel shows (CLIO_SURF_*), its material (| CLIO_GLOW),
+                                       the player's view's light on it (0..255) - or NULL: no G-buffer */
+    int marking;                    /* 1 while things are drawn (pictures, triangles, shadows): what is drawn now... */
+    int thing;                      /* ...stands there - kind THING, its distance kept, drawn where the pixel is as far
+                                       or further (>= cur_z) - or (0) marks what is there (a shadow: > cur_z) */
+    int glow;                       /* ...gives light of its own (a shot, a flame; a model lit already) */
+    int nfaces;                     /* clio_frame_rooms: each face's material (NULL: all 0) */
+    const int32_t *face_mat;
+    int nmat;
+    const int32_t *glow_at;         /* nmat + 1: where each material's glowing colours start in glow_rgb */
+    const uint32_t *glow_rgb;       /* 0xRRGGBB */
+    int low;                        /* clio_frame_rooms: floors and ceilings at half width (CLIo's low detail) */
+} clio_more;
+
+/* Hands m over beside f for the calls this thread makes next (NULL: taken back) */
+CLIO_PICTURE_API void clio_frame_more(clio_frame *f, clio_more *m);
+
+typedef struct clio_lamp {
+    double x, y, h;                 /* where its light comes from */
+    double r, g, b;                 /* its colour, 0..1 */
+    double reach, k;                /* cells; its power times how it burns now (flicker, pulse) */
+    int64_t lit_x0, lit_y0;         /* the cells it sees: lit_w * lit_h bytes from lit (non-zero: seen) */
+    int lit_w, lit_h;
+    const uint8_t *lit;
+} clio_lamp;
+
+typedef struct clio_surface {
+    int pw, ph;                     /* the picture, as the frame's */
+    double half, yh, lx, ly;        /* as clio_rooms' */
+    double cx, cy, fx, fy, rx, ry, z0, eye;
+    double far, fade;               /* engine/mesh.py's FAR, FADE */
+    double none;                    /* the distance of a pixel no face covers */
+    double t;                       /* the beat and the moment in it */
+    double amb[3];                  /* the ambient light */
+    int nlamps;
+    const clio_lamp *lamps;
+    double key[3];                  /* the player's own light */
+    int nmat;
+    const double *metal, *rough, *reflect;
+    double fog, cover, lift, amount, wet_sky, wet_all;
+    double fog_rgb[3];              /* the fog's colour, lit */
+    int has_sky_k;
+    double sky_k[3];                /* the sky darkened (night) */
+    int raining, mirrors;           /* rain or a storm; reflections and splashes (not in low detail) */
+    double px, py;                  /* the player (where the splashes fall round) */
+    int64_t cells_x0, cells_y0;     /* map cells, cells_w * cells_h: 0 none, 1 a cell, 2 under open sky, | 4 solid */
+    int cells_w, cells_h;
+    const uint8_t *cells;
+    const double *heights;          /* their floors' heights */
+} clio_surface;
+
+/* The frame's picture lit by its G-buffer (clio_frame_more's): ambient times the view's own light, lamps by how far
+ * across and how the surface is turned to them, GGX highlights, glowing texels as they are, floors' dim reflections,
+ * fog and lightning, then the rain's splashes - engine/surface.py's shade(). Returns 0; -1 for bad numbers or no
+ * G-buffer; -2 without clio_maths. */
+CLIO_PICTURE_API int clio_frame_surface(clio_frame *f, const clio_surface *s);
+
+/* GGX's highlight (surface.ggx): n, l, v unit vectors */
+CLIO_PICTURE_API double clio_ggx(const double *n, const double *l, const double *v, double rough, double f0);
+
+/* The picture turned half round, upside down and left to right, its cover with it (View.turned_over) */
+CLIO_PICTURE_API void clio_frame_flip(clio_frame *f);
+
+/* Pixels (w x h, 0xRRGGBB) turned about their middle (firstperson.tilt): out's pixel (x, y) is src's at
+ * (round(cx + dx ca + dy sa), round(cy - dx sa + dy ca)) - Python's round, halves to even - or dark outside. ca, sa:
+ * the angle's cosine and sine (the caller's). Returns 0; -1 for bad numbers. */
+CLIO_PICTURE_API int clio_tilt(const uint32_t *src, int w, int h, double ca, double sa, uint32_t dark, uint32_t *out);
 
 /* Braille cells from pixels (CLIo's dots and dots-fill styles, engine/firstperson.py View.braille).
  * A cell is 2 pixels across and 4 down; its dots are Unicode braille U+2800 + bits. */

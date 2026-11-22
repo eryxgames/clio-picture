@@ -3,6 +3,33 @@
 Versions follow [semantic versioning](https://semver.org). Each follows CLIo's Python, which
 is the reference.
 
+## 0.8.0
+
+Surfaces lit by their materials, low detail, terraces, the picture turned over and turned.
+
+- `clio_frame_more`: what 0.8 adds to a frame, handed over beside it for the calls this thread
+  makes next - a G-buffer (each pixel's kind: floor, ceiling, a wall turned one of four ways, a
+  thing, the sky; its material, glowing or not; the light the player's view gives it) with each
+  face's material and each material's glowing colours, and low detail. The `clio_frame`
+  structure is unchanged.
+- `clio_frame_rooms` with a G-buffer draws the surfaces' own colours and fills it; pictures,
+  triangles and shadows drawn after mark it as CLIo's `surface.GRow` does (a thing keeps its
+  distance and its kind; a shadow stays floor).
+- `clio_frame_surface`: CLIo's `surface.shade` - ambient times the view's own light, lamps by how
+  far across and how the surface is turned to them (only where they see), GGX highlights (Smith,
+  Schlick; a metal's in its own colour, the player's own light's sheen), glowing texels as they
+  are, floors' dim reflections (mirrored about where they meet what stands on them; Fresnel;
+  smeared on rough floors; trembling in the rain), the weather's fog and lightning - then
+  `surface.splashes`. `clio_ggx`.
+- Low detail: the mesh view's floors and ceilings at half width, as `Mesh.flat`.
+- `clio_land_terraced`: `clio_land_draw` with terraces - map cells standing higher than the pad,
+  their floors drawn that high and the ground blended from them (`Land.ground`).
+- `clio_frame_flip` (the picture turned half round, its cover too) and `clio_tilt` (turned about
+  its middle, Python's rounding).
+- E1M8 at 160 x 45 lit: 46 ms in Python, 8.5 ms here (E1M6 42 -> 6.8).
+- `tests/cases.h`: two lit pictures (lamps, a model, chrome, glowing windows, a polished floor; a
+  yard in the rain at night, wet, splashing), GGX, the turn and the flip.
+
 ## 0.7.0
 
 CLIo's mesh view: rooms as faces in a true perspective, with floors and ceilings at heights.

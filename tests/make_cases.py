@@ -643,6 +643,112 @@ def mesh_cases():
     return out
 
 
+def surface_cases():
+    """What CLIo's engine/surface.py makes of two pictures' G-buffers (its tests/test_surface.py rooms): a hall lit by
+    a red and a blue lamp, with a model, chrome walls with lit windows and a polished floor; and a yard in the rain at
+    night, wet, splashing. The picture, distances and G-buffer before, the numbers clio_surface takes, and a sum of
+    the pixels after."""
+    sys.path.insert(0, os.path.join(os.path.abspath(CLIO), "tests"))
+    import test_surface as ts
+    from engine import surface
+    hall = ["#########",
+            "#.......#",
+            "#.......#",
+            "#..LwR..#",
+            "#.......#",
+            "#...@...#",
+            "#########"]
+    yard = ["#########",
+            "#sssssss#",
+            "#ssLssss#",
+            "#sss.sss#",
+            "#sss@sss#",
+            "#########"]
+    scenes = [
+        (hall, {"w": "warden", "L": {"lamp": {"colour": [255, 40, 20], "reach": 3, "power": 2.0}},
+                "R": {"lamp": {"colour": [20, 60, 255], "reach": 3, "power": 2.0}},
+                ".": {"floor": "polish"}, "@": {"floor": "polish", "start": True}, "#": {"wall": "chrome"}},
+         {"lights": {"ambient": 0.4}}, 0.0, "high"),
+        (yard, {"s": {"sky": True, "floor": "matte"}, "@": {"sky": True, "floor": "polish", "start": True},
+                "L": {"sky": True, "lamp": {"colour": [255, 200, 140], "reach": 4, "power": 1.4}},
+                ".": {"floor": "polish"}, "#": {"wall": "panel_lit"}},
+         {"lights": {"ambient": 0.35, "tint": [150, 170, 255]}, "weather": {"kind": "rain", "amount": 1.0, "fog": 0.05}},
+         3.4, "high"),
+    ]
+    out = []
+    for rows, legend, more, t, detail in scenes:
+        lv = ts.level(rows, legend=legend, **more)
+        for m in lv.monsters:
+            m.facing = 2
+        got = {}
+        real = surface.shade
+
+        def spy(lv_, atm, view, rows_, depths, gbuf, *rest):
+            got["before"] = [list(r) for r in rows_]
+            got["depth"] = [v for d in depths for v in d]
+            got["g"] = [bytes(b) for b in gbuf]
+            got["n"] = surface.numbers(lv_, atm, view, rest[0], rest[3], rest[1], (0, 0, len(rows) - 1, len(rows[0]) - 1))
+            real(lv_, atm, view, rows_, depths, gbuf, *rest)
+            got["after"] = [c for r in rows_ for c in r]
+        surface.shade = spy
+        try:
+            v = firstperson.View(40, 12, "pixel", detail)
+            v.use_frame = False
+            lv.beat = int(t)
+            v.render(lv, firstperson.FX(tick=t - int(t), hands=False), 1)
+        finally:
+            surface.shade = real
+        out.append((got, sum_rgb(0xCBF29CE484222325, got["after"])))
+    return out
+
+
+def surface_c(i, got, h):
+    n, lamps, (x0, y0, w_, h_, flags, heights) = got["n"]
+    o = []
+    o.append(arr("uint32_t", "SURF%d_RGB" % i, [u32(c) for r in got["before"] for c in r], hex))
+    o.append(arr("double", "SURF%d_DEPTH" % i, got["depth"]))
+    for k, name in enumerate(("KINDS", "MATS", "OWN")):
+        o.append(arr("uint8_t", "SURF%d_%s" % (i, name), list(got["g"][k]), str))
+    for name in ("metal", "rough", "reflect"):
+        o.append(arr("double", "SURF%d_%s" % (i, name.upper()), n[name]))
+    for j, lp in enumerate(lamps):
+        o.append(arr("uint8_t", "SURF%d_LIT%d" % (i, j), list(lp[12]), str))
+    o.append("static const clio_lamp SURF%d_LAMPS[%d] = {%s};" % (i, max(1, len(lamps)), ", ".join(
+        "{%r, %r, %r, %r, %r, %r, %r, %r, %d, %d, %d, %d, SURF%d_LIT%d}" % (
+            float(lp[0]), float(lp[1]), float(lp[2]), lp[3], lp[4], lp[5], float(lp[6]), float(lp[7]), lp[8], lp[9],
+            lp[10], lp[11], i, j) for j, lp in enumerate(lamps)) or "{0}"))
+    o.append(arr("uint8_t", "SURF%d_CELLS" % i, list(flags), str))
+    o.append(arr("double", "SURF%d_HEIGHTS" % i, [float(v) for v in heights]))
+    f3 = lambda t3: "{%r, %r, %r}" % tuple(float(v) for v in t3)    # noqa: E731
+    o.append("static const clio_surface SURF%d = {%d, %d, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, %r, "
+             "%r, %s, %d, SURF%d_LAMPS, %s, %d, SURF%d_METAL, SURF%d_ROUGH, SURF%d_REFLECT, %r, %r, %r, %r, %r, %r, "
+             "%s, %d, %s, %d, %d, %r, %r, %d, %d, %d, %d, SURF%d_CELLS, SURF%d_HEIGHTS};" % (
+                 i, n["pw"], n["ph"], n["half"], n["yh"], n["lx"], n["ly"], n["cx"], n["cy"], n["fx"], n["fy"],
+                 n["rx"], n["ry"], n["z0"], n["eye"], n["far"], n["fade"], n["none"], n["t"], f3(n["amb"]),
+                 len(lamps), i, f3(n["key"]), len(n["metal"]), i, i, i, n["fog"], n["cover"], n["lift"], n["amount"],
+                 n["wet_sky"], n["wet_all"], f3(n["fog_rgb"]), n["has_sky_k"], f3(n["sky_k"]), n["raining"],
+                 n["mirrors"], n["px"], n["py"], x0, y0, w_, h_, i, i))
+    o.append("#define SURF%d_SUM 0x%016XULL" % (i, h))
+    return "\n".join(o) + "\n\n"
+
+
+def tilt_cases():
+    """firstperson.tilt on a made-up picture (pixel (x, y): see test_picture.c's tilt_pixel), at a few angles."""
+    W, H = 23, 7
+    cells = [[(None, tilt_pixel(x, 2 * y), tilt_pixel(x, 2 * y + 1)) for x in range(W)] for y in range(H)]
+    out = []
+    for deg in (12.5, -90.0, 33.0, 180.0):
+        turned = firstperson.tilt(cells, deg)
+        a = math.radians(deg)
+        out.append((deg, math.cos(a), math.sin(a), sum_rgb(0xCBF29CE484222325, [c for r in turned for _ch, t_, b in r
+                                                                               for c in (t_, b)])))
+    return W, H, out
+
+
+def tilt_pixel(x, y):
+    return ((x * 37 + y * 11) & 255, (x * 5 + y * 71) & 255, (x * y * 3 + 7) & 255)
+
+
 def arr(kind, name, values, fmt=repr):
     return "static const %s %s[%d] = {%s};" % (kind, name, max(1, len(values)), ", ".join(fmt(v) for v in values) or "0")
 
@@ -717,6 +823,19 @@ def main():
               i, i))
         w("#define MESH%d_SX %d\n#define MESH%d_SY %d\n#define MESH%d_LATER %d\n#define MESH%d_SUM 0x%016XULL\n\n" % (
             i, v.sx, i, v.sy, i, nlater, i, h))
+    from engine import surface as surface_mod
+    ggx = [((0.0, 0.0, 1.0), (0.0, 0.6, 0.8), (0.0, -0.6, 0.8), 0.2, 0.04),
+           ((0.0, 0.0, 1.0), (0.0, 0.95, 0.31), (0.0, -0.95, 0.31), 0.5, 0.64),
+           ((1.0, 0.0, 0.0), (0.6, 0.0, 0.8), (0.8, 0.6, 0.0), 0.9, 0.1)]
+    w("/* surface.ggx */\nstatic const double GGX[%d][12] = {%s};\n\n" % (len(ggx), ", ".join(
+        "{%s}" % ", ".join(repr(float(v)) for v in (*n_, *l_, *v_, r_, f0, surface_mod.ggx(n_, l_, v_, r_, f0)))
+        for n_, l_, v_, r_, f0 in ggx)))
+    tw, th, tilts = tilt_cases()
+    w("#define TILT_W %d\n#define TILT_H %d\nstatic const double TILT[%d][3] = {%s};\n" % (
+        tw, 2 * th, len(tilts), ", ".join("{%r, %r, %r}" % (deg, c, s_) for deg, c, s_, _h in tilts)))
+    w("static const uint64_t TILT_SUM[%d] = {%s};\n\n" % (len(tilts), ", ".join("0x%016XULL" % h_ for *_x, h_ in tilts)))
+    for i, (got, h) in enumerate(surface_cases()):
+        w(surface_c(i, got, h))
     for i, (PW, PH, sx, sy, land, calls, h) in enumerate(frame_cases()):
         w(frame_calls_c(i, calls))
         w("#define FRAME%d_PW %d\n#define FRAME%d_PH %d\n#define FRAME%d_SX %d\n#define FRAME%d_SY %d\n"

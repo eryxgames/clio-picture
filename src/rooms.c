@@ -9,6 +9,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define R(c) ((int)(((c) >> 16) & 255u))
 #define G(c) ((int)(((c) >> 8) & 255u))
@@ -185,7 +186,37 @@ typedef struct {
     uint8_t *walls;
     int32_t *later;
     int nlater;
+    const clio_more *g;     /* the G-buffer (0.8), or NULL */
+    int step;               /* 2: floors and ceilings at half width */
 } ctx;
+
+/* a face's material, and whether colour c glows in it */
+static int mat_of(const ctx *x_, int i)
+{
+    const clio_more *g = x_->g;
+    int m = (g->face_mat && i < g->nfaces) ? g->face_mat[i] : 0;
+    return (m < 0 || m >= g->nmat) ? 0 : m;
+}
+
+static int glows(const ctx *x_, int m, uint32_t c)
+{
+    const clio_more *g = x_->g;
+    int a, b;
+    if (!g->glow_at || !g->glow_rgb || m >= g->nmat)
+        return 0;
+    for (a = g->glow_at[m], b = g->glow_at[m + 1]; a < b; a++)
+        if (g->glow_rgb[a] == c)
+            return 1;
+    return 0;
+}
+
+/* the G-buffer at pixel k: kind, material (glowing or not), the light it was drawn with */
+static void mark(const ctx *x_, size_t k, int kind, int m, int hot, int q)
+{
+    x_->g->kinds[k] = (uint8_t)kind;
+    x_->g->mats[k] = (uint8_t)(hot ? (m | CLIO_GLOW) : m);
+    x_->g->own[k] = (uint8_t)(q < 0 ? 0 : q < 256 ? q : 255);
+}
 
 /* Mesh.flat: a floor or a ceiling, one distance a row */
 static void flat(ctx *x_, int i, const int *spans, int n)
@@ -194,7 +225,7 @@ static void flat(ctx *x_, int i, const int *spans, int n)
     const int32_t *ni = r->ints + (size_t)i * 9;
     const double *g = r->geo + (size_t)i * 7;
     const int64_t *xy = r->xy + (size_t)i * 4;
-    int floor_ = ni[0] == CLIO_FACE_FLOOR, s;
+    int floor_ = ni[0] == CLIO_FACE_FLOOR, s, gm;
     double dh = r->eye - g[0];
     int64_t ix = xy[0], iy = xy[1];
     clio_room_cell cell;
@@ -213,8 +244,9 @@ static void flat(ctx *x_, int i, const int *spans, int n)
     cell.mark = ni[8];
     cell.x = xy[2];
     cell.y = xy[3];
+    gm = x_->g ? mat_of(x_, i) : 0;
     for (s = 0; s < n; s++) {
-        int y = spans[s * 3], x;
+        int y = spans[s * 3], x, x0 = spans[s * 3 + 1], x1 = spans[s * 3 + 2], step = x_->step;
         double sb = x_->sb[y], d, z, fog, fade;
         int q;
         uint32_t *row = x_->f->rgb + (size_t)y * PW;
@@ -227,80 +259,105 @@ static void flat(ctx *x_, int i, const int *spans, int n)
         z = d - r->z0;
         fog_of(r, z, &fog, &fade);
         q = (int)(fog * fade * 256.0);
-        for (x = spans[s * 3 + 1]; x < spans[s * 3 + 2]; x++) {
+        for (x = step == 2 ? x0 - (x0 & 1) : x0; x < x1; x += step) {   /* low: pairs from an even column */
             double ux, uy;
-            uint32_t c = NONE;
-            if (z >= zbuf[x])
+            uint32_t c = NONE, v;
+            int one = x >= x0 && z < zbuf[x], two = step == 2 && x + 1 < x1 && z < zbuf[x + 1], xs, qq = q, hot = 0;
+            if (!(one || two))
                 continue;
-            ux = x_->ex + d * x_->dirx[x] - (double)ix;
-            uy = x_->ey + d * x_->diry[x] - (double)iy;
+            xs = x >= x0 ? x : x + 1;                         /* the pixel whose ray gives the colour */
+            ux = x_->ex + d * x_->dirx[xs] - (double)ix;
+            uy = x_->ey + d * x_->diry[xs] - (double)iy;
             ux = ux < -0.5 ? -0.5 : ux > 0.4999 ? 0.4999 : ux;
             uy = uy < -0.5 ? -0.5 : uy > 0.4999 ? 0.4999 : uy;
             if (!floor_) {
                 if (cell.kind == CLIO_CEILING_SKY) {
                     if (r->sky && y < r->sky_rows) {
-                        const uint8_t *p = r->sky + ((size_t)y * PW + x) * 3;
-                        c = RGB(p[0], p[1], p[2]);
+                        const uint8_t *p = r->sky + ((size_t)y * PW + xs) * 3;
+                        v = RGB(p[0], p[1], p[2]);
                     } else
-                        c = HAZE;
-                    zbuf[x] = z;
-                    row[x] = c;
-                    continue;
+                        v = HAZE;
+                    qq = -1;
+                } else {
+                    if (cell.tex)
+                        c = clio__room_texel(&cell, ux, uy);
+                    if (c == NONE) {
+                        c = CEIL;
+                        if (fabs(ux) > 0.47 || fabs(uy) > 0.47)
+                            c = CEIL_LINE;
+                        else if (pymod(ix * 7 + iy * 3, 4) == 0 && fabs(ux) < 0.24 && fabs(uy) < 0.24)
+                            c = LIGHT;
+                    }
+                    v = x_->g ? c : colour(c, q);
                 }
-                if (cell.tex)
+            } else {
+                if (cell.tex)                                /* the floor: as View._backdrop draws it */
                     c = clio__room_texel(&cell, ux, uy);
-                if (c == NONE) {
-                    c = CEIL;
-                    if (fabs(ux) > 0.47 || fabs(uy) > 0.47)
-                        c = CEIL_LINE;
-                    else if (pymod(ix * 7 + iy * 3, 4) == 0 && fabs(ux) < 0.24 && fabs(uy) < 0.24)
-                        c = LIGHT;
+                if (c == NONE && cell.kind != CLIO_FLOOR_PLAIN) {
+                    if (cell.kind == CLIO_FLOOR_TELEPORT) {  /* its rings: the caller's */
+                        if (one) {
+                            zbuf[x] = z;
+                            row[x] = HAZE;
+                            x_->later[x_->nlater * 2] = y * PW + x;
+                            x_->later[x_->nlater * 2 + 1] = i;
+                            x_->nlater++;
+                        }
+                        if (two) {
+                            zbuf[x + 1] = z;
+                            row[x + 1] = HAZE;
+                            x_->later[x_->nlater * 2] = y * PW + x + 1;
+                            x_->later[x_->nlater * 2 + 1] = i;
+                            x_->nlater++;
+                        }
+                        continue;
+                    }
+                    c = clio__room_fixture(&cell, ux, uy, r->phase);
                 }
-                zbuf[x] = z;
-                row[x] = colour(c, q);
-                continue;
-            }
-            if (cell.tex)                                    /* the floor: as View._backdrop draws it */
-                c = clio__room_texel(&cell, ux, uy);
-            if (c == NONE && cell.kind != CLIO_FLOOR_PLAIN) {
-                if (cell.kind == CLIO_FLOOR_TELEPORT) {      /* its rings: the caller's */
-                    zbuf[x] = z;
-                    row[x] = HAZE;
-                    x_->later[x_->nlater * 2] = y * PW + x;
-                    x_->later[x_->nlater * 2 + 1] = i;
-                    x_->nlater++;
-                    continue;
+                if (c == NONE && cell.toxic) {
+                    c = noise((int64_t)(ux * 8) + ix * 8, (int64_t)(uy * 8) + iy * 8, r->phase) < 0.07 ? TOXIC_HI : TOXIC;
+                    qq = (int)((0.45 + 0.55 * fog) * fade * 256.0);
+                    hot = c == TOXIC_HI;
+                } else {
+                    if (c == NONE) {
+                        c = ((ix + iy) & 1) ? FLOOR_A : FLOOR_B;
+                        if (fabs(ux) > 0.46 || fabs(uy) > 0.46)
+                            c = FLOOR_LINE;
+                    }
+                    if (cell.fire)
+                        c = mix(c, RGB(255, 120, 30),
+                                0.3 + 0.25 * noise((int64_t)(ux * 6) + ix * 6, (int64_t)(uy * 6) + iy * 6, r->phase));
+                    if (cell.mark == 1) {                    /* fire is coming here: hatched and glowing */
+                        int hatch = pymod((int64_t)((ux + uy + 1.0) * 6), 2) == 0;
+                        c = mix(c, hatch ? RGB(255, 90, 30) : RGB(150, 30, 20), 0.55 + 0.2 * pymod(r->phase, 2));
+                        qq = (int)((0.6 + 0.4 * fog) * fade * 256.0);
+                        hot = 1;
+                    } else if (cell.mark == 2) {
+                        double k = noise((int64_t)(ux * 10) + ix * 10, (int64_t)(uy * 10) + iy * 10, r->phase + 5);
+                        c = k < 0.25 ? RGB(255, 230, 120) : k < 0.7 ? RGB(255, 140, 40) : RGB(200, 50, 20);
+                        qq = (int)(fade * 256.0);
+                        hot = 1;
+                    } else
+                        hot = cell.fire != 0;
                 }
-                c = clio__room_fixture(&cell, ux, uy, r->phase);
+                v = x_->g ? c : colour(c, qq);
             }
-            if (c == NONE && cell.toxic) {
-                c = noise((int64_t)(ux * 8) + ix * 8, (int64_t)(uy * 8) + iy * 8, r->phase) < 0.07 ? TOXIC_HI : TOXIC;
+            if (one) {
                 zbuf[x] = z;
-                row[x] = colour(c, (int)((0.45 + 0.55 * fog) * fade * 256.0));
-                continue;
+                row[x] = v;
             }
-            if (c == NONE) {
-                c = ((ix + iy) & 1) ? FLOOR_A : FLOOR_B;
-                if (fabs(ux) > 0.46 || fabs(uy) > 0.46)
-                    c = FLOOR_LINE;
+            if (two) {
+                zbuf[x + 1] = z;
+                row[x + 1] = v;
             }
-            if (cell.fire)
-                c = mix(c, RGB(255, 120, 30),
-                        0.3 + 0.25 * noise((int64_t)(ux * 6) + ix * 6, (int64_t)(uy * 6) + iy * 6, r->phase));
-            zbuf[x] = z;
-            if (cell.mark == 1) {                            /* fire is coming here: hatched and glowing */
-                int hatch = pymod((int64_t)((ux + uy + 1.0) * 6), 2) == 0;
-                c = mix(c, hatch ? RGB(255, 90, 30) : RGB(150, 30, 20), 0.55 + 0.2 * pymod(r->phase, 2));
-                row[x] = colour(c, (int)((0.6 + 0.4 * fog) * fade * 256.0));
-                continue;
+            if (x_->g) {                                     /* what it is: the sky through an open roof is none */
+                int kind = qq < 0 ? CLIO_SURF_SKY : floor_ ? CLIO_SURF_FLOOR : CLIO_SURF_CEILING;
+                int h = hot || (qq >= 0 && glows(x_, gm, c));
+                size_t k0 = (size_t)y * PW + x;
+                if (one)
+                    mark(x_, k0, kind, gm, h, qq < 0 ? 0 : qq);
+                if (two)
+                    mark(x_, k0 + 1, kind, gm, h, qq < 0 ? 0 : qq);
             }
-            if (cell.mark == 2) {
-                double k = noise((int64_t)(ux * 10) + ix * 10, (int64_t)(uy * 10) + iy * 10, r->phase + 5);
-                c = k < 0.25 ? RGB(255, 230, 120) : k < 0.7 ? RGB(255, 140, 40) : RGB(200, 50, 20);
-                row[x] = colour(c, (int)(fade * 256.0));
-                continue;
-            }
-            row[x] = colour(c, q);
         }
     }
 }
@@ -312,7 +369,7 @@ static void upright(ctx *x_, int i, const int *spans, int n, double *col_d, doub
     const clio_rooms *r = x_->r;
     const int32_t *ni = r->ints + (size_t)i * 9;
     const double *g = r->geo + (size_t)i * 7;
-    int kind = ni[0], side = ni[1], TW, TH, s, k;
+    int kind = ni[0], side = ni[1], TW, TH, s, k, wk = 0, gm = 0;
     double nx = kind == CLIO_FACE_XWALL ? side : 0, ny = kind == CLIO_FACE_XWALL ? 0 : side;
     double kf = r->side + (1.0 - r->side) * fabs(nx * r->fx + ny * r->fy);
     double ux = ny, uy = -nx, left = 0.0, c[4][3];
@@ -323,6 +380,11 @@ static void upright(ctx *x_, int i, const int *spans, int n, double *col_d, doub
     tex = r->texels[ni[2]];
     TW = r->tw[ni[2]];
     TH = r->th[ni[2]];
+    if (x_->g) {
+        wk = kind == CLIO_FACE_XWALL ? (side > 0 ? CLIO_SURF_WALL_PX : CLIO_SURF_WALL_NX)
+                                     : (side > 0 ? CLIO_SURF_WALL_PY : CLIO_SURF_WALL_NY);
+        gm = mat_of(x_, i);
+    }
     corners(r, i, c);
     for (k = 0; k < 4; k++) {
         double v = ux * c[k][0] + uy * c[k][1];
@@ -377,7 +439,11 @@ static void upright(ctx *x_, int i, const int *spans, int n, double *col_d, doub
                 continue;
             zbuf[x] = z;
             x_->walls[(size_t)y * PW + x] = 1;
-            row[x] = colour(t, q);
+            if (x_->g) {                                     /* its own colour, lit later */
+                row[x] = t;
+                mark(x_, (size_t)y * PW + x, wk, gm, glows(x_, gm, t), q);
+            } else
+                row[x] = colour(t, q);
         }
     }
 }
@@ -429,6 +495,15 @@ int clio_frame_rooms(clio_frame *f, const clio_rooms *r, int32_t *later, int *la
         f->rgb[i] = HAZE;
         f->depth[i] = r->none;
     }
+    c.g = clio__more(f);
+    if (c.g && (!c.g->kinds || !c.g->mats || !c.g->own))
+        c.g = NULL;
+    if (c.g) {
+        memset(c.g->kinds, 0, npx);
+        memset(c.g->mats, 0, npx);
+        memset(c.g->own, 0, npx);
+    }
+    c.step = (clio__more(f) && clio__more(f)->low) ? 2 : 1;
     c.r = r;
     c.f = f;
     c.dirx = dirx;
