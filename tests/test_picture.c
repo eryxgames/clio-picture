@@ -24,6 +24,7 @@ static const uint8_t WANT_FILL[48] = {0, 1, 0, 0, 0, 60, 60, 60, 0, 1, 0, 0, 0, 
 static int frame_model_failed = 0;
 
 #include "cases.h"
+#include "scope_cases.h"
 
 static int bad = 0;
 
@@ -273,6 +274,77 @@ static void frame_case(const char *what, int pw, int ph, int sx, int sy, int lan
     free(f.cover);
     free(f.zbuf);
     free(f.zgen);
+}
+
+/* The vector display: the calls of tests/scope_cases.h leave what CLIo's Python leaves - each dot's light, the
+ * faces' depths, each character's brightest thing, its ink and the way lines run through it - and the characters
+ * read from it are the Python's, with and without a glow and a background. */
+static void scope_case(void)
+{
+    enum { N = SCOPE_COLS * 2 * SCOPE_ROWS * 4, CELLS = SCOPE_COLS * SCOPE_ROWS };
+    static double light[N], depth[N], best[CELLS];
+    static int32_t ink[CELLS], way[CELLS];
+    static uint8_t cells[CELLS * 8];
+    clio_scope s = {SCOPE_COLS, SCOPE_ROWS, light, NULL, best, ink, way, 1, 2.0, 9.0, 0.25};
+    int frame, i, k;
+    for (i = 0; i < CELLS; i++)
+        way[i] = -1;
+    for (frame = 0; frame < SCOPE_FRAMES; frame++) {
+        uint64_t h = 0xCBF29CE484222325ULL;
+        memset(depth, 0, sizeof depth);
+        if (scope_steps(&s, depth, frame) != 0) {
+            printf("FAIL the vector display, frame %d: a call was refused\n", frame);
+            bad++;
+            continue;
+        }
+        for (i = 0; i < N; i++)
+            h = fnv_double(h, light[i]);
+        if (s.depth != NULL)
+            for (i = 0; i < N; i++)
+                h = fnv_double(h, depth[i]);
+        for (i = 0; i < CELLS; i++)
+            h = fnv_double(h, best[i]);
+        for (i = 0; i < CELLS; i++)
+            h = fnv32(h, (uint32_t)ink[i]);
+        for (i = 0; i < CELLS; i++)
+            h = fnv32(h, (uint32_t)way[i]);
+        if (h != SCOPE_SUM[frame]) {
+            printf("FAIL the vector display, frame %d: its dots differ from CLIo's\n", frame);
+            bad++;
+        }
+        for (k = 0; k < 4; k++) {
+            uint64_t hc = 0xCBF29CE484222325ULL;
+            if (clio_scope_cells(&s, SCOPE_COLOURS, (int)(sizeof SCOPE_COLOURS / sizeof SCOPE_COLOURS[0]), k % 2 == 0,
+                                 k >= 2, SCOPE_PAPER, cells) != 0) {
+                printf("FAIL the vector display, frame %d: no characters\n", frame);
+                bad++;
+                continue;
+            }
+            hc = fnv(hc, cells, sizeof cells);
+            if (hc != SCOPE_CELLS[frame][k]) {
+                printf("FAIL the vector display, frame %d: its characters differ from CLIo's (%s, %s)\n", frame,
+                       k % 2 == 0 ? "glow" : "no glow", k >= 2 ? "a background" : "no background");
+                bad++;
+            }
+        }
+    }
+    {
+        static const double tri[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+        static const int32_t far_edge[2] = {0, 7}, corners[3] = {0, 1, 2}, two[1] = {2}, three[1] = {3};
+        clio_scope none = {0, 0, light, depth, best, ink, way, 0, 0.0, 1.0, 0.3};
+        s.depth = depth;
+        if (clio_scope_wire(&s, &EYE0, tri, 3, far_edge, 1, NULL, 1.0, 0) != -1
+            || clio_scope_hide(&s, &EYE0, tri, 3, corners, two, 1, 0.996) != -1
+            || clio_scope_cells(&none, SCOPE_COLOURS, 1, 1, 0, 0, cells) != -1) {
+            printf("FAIL the vector display: a line to no point, a face of two corners or no size is not refused\n");
+            bad++;
+        }
+        s.depth = NULL;
+        if (clio_scope_hide(&s, &EYE0, tri, 3, corners, three, 1, 0.996) != -1) {
+            printf("FAIL the vector display: faces without a depth buffer are not refused\n");
+            bad++;
+        }
+    }
 }
 
 /* clio_dots32 on 0xRRGGBB pixels is clio_dots on their bytes */
@@ -635,6 +707,7 @@ int main(void)
     }
     turn_cases();
     dots32_case();
+    scope_case();
     room_case("room ahead", &ROOM0, ROOM0_SUM, ROOM0_LATER, ROOM0_FIRST_LATER);
     room_case("room sideways, low detail", &ROOM1, ROOM1_SUM, ROOM1_LATER, ROOM1_FIRST_LATER);
     sky_case("sky with stars, clouds, ridges", &SKY0, SKY0_SUM, SKY0_RIDGES_SUM, SKY0_SPOTS, SKY0_FIRST_SPOT);

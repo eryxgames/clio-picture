@@ -20,6 +20,8 @@
  * 0.8: surfaces lit by their materials (a G-buffer, lamps, highlights, glow, reflections, wet floors, the rain's
  *      splashes), the mesh view's floors at half width (low detail), the picture turned over, and turned.
  * 0.9: slopes in the mesh view: sloped floors and ceilings, and the sloped edges of the faces beside them.
+ * 0.10: the vector display (CLIo's engine/vector.py Scope): lines lit dot by dot, faces filled into a depth
+ *      buffer that hides the lines behind them, and the characters read from the dots.
  */
 #ifndef CLIO_PICTURE_H
 #define CLIO_PICTURE_H
@@ -42,9 +44,9 @@ extern "C" {
 #  define CLIO_PICTURE_API __attribute__((visibility("default")))
 #endif
 
-#define CLIO_PICTURE_VERSION "0.9.0"
+#define CLIO_PICTURE_VERSION "0.10.0"
 
-/* "0.9.0" */
+/* "0.10.0" */
 CLIO_PICTURE_API const char *clio_picture_version(void);
 
 /* A lattice point's value, 0..1 (land._h): a 32-bit hash of the point and the seed. */
@@ -499,6 +501,59 @@ CLIO_PICTURE_API int clio_dots(const uint8_t *rgb, int cols, int rows, const cli
 /* clio_dots on a frame's pixels (0xRRGGBB, 2 * cols by 4 * rows) - 0.4 */
 CLIO_PICTURE_API int clio_dots32(const uint32_t *rgb, int cols, int rows, const clio_dots_style *style,
                                  uint8_t *out);
+
+/* ---- the vector display (CLIo's engine/vector.py Scope) - 0.10 ------------------------------------------------ */
+
+/* A display of cols by rows characters, each 2 dots across and 4 down. The arrays are the caller's. */
+typedef struct clio_scope {
+    int cols, rows;
+    double *light;      /* 2 * cols by 4 * rows: each dot's light */
+    double *depth;      /* the same size: 1 / distance of the nearest face at each dot; NULL: no faces yet */
+    double *best;       /* cols * rows: the brightest thing drawn in each character this frame */
+    int32_t *ink;       /* ... and its colour, as a number of the caller's */
+    int32_t *way;       /* the way lines run through it: -1 none, 0 flat, 1 down to the right, 2 upright,
+                           3 up to the right, 4 several */
+    int has_cue;        /* lines dim with distance: from cue_near (full) to cue_far (dim of their light) */
+    double cue_near, cue_far, dim;
+} clio_scope;
+
+/* An eye: where it is, its right, up and ahead (unit vectors), how near it sees (near_z), and f - half the display's
+ * width in dots over the tangent of half the angle it sees (the caller's tangent). */
+typedef struct clio_eye {
+    double eye[3], right[3], up[3], ahead[3];
+    double near_z, f;
+} clio_eye;
+
+/* A new frame (Scope.clear): each dot keeps afterglow of its light (out under 0.07; 0: all go out); best and
+ * way are forgotten. The depth buffer is the caller's to forget. */
+CLIO_PICTURE_API void clio_scope_clear(clio_scope *s, double afterglow);
+
+/* Light one dot (Scope.dot); way < 0: of no line. */
+CLIO_PICTURE_API void clio_scope_dot(clio_scope *s, int x, int y, double bright, int32_t ink, int way);
+
+/* A line on the display, in dots (Scope.line2). has_w: w0 and w1 are 1 / distance at its ends - it is hidden
+ * where a face is in front of all of a dot's neighbours, and dimmed by distance if the scope has a cue. */
+CLIO_PICTURE_API void clio_scope_line2(clio_scope *s, double x0, double y0, double x1, double y1, double bright,
+                                       int32_t ink, int has_w, double w0, double w1);
+
+/* A thing's lines (Scope.draw): verts are nverts points (x y z), edges nedges pairs of them; skip (or NULL):
+ * a byte for each line, not 0 where it is left out. Returns 0; -1 for a line to a point there is not. */
+CLIO_PICTURE_API int clio_scope_wire(clio_scope *s, const clio_eye *e, const double *verts, int nverts,
+                                     const int32_t *edges, int nedges, const uint8_t *skip, double bright,
+                                     int32_t ink);
+
+/* A thing's faces into the depth buffer (Scope.hide): sizes are nfaces counts of corners (3 to 16), corners
+ * the corners of all of them in turn; back: 1 - how far faces stand behind their own lines (0.004). The scope
+ * needs its depth. Returns 0; -1 for a face it cannot take (before anything of that face is drawn). */
+CLIO_PICTURE_API int clio_scope_hide(clio_scope *s, const clio_eye *e, const double *verts, int nverts,
+                                     const int32_t *corners, const int32_t *sizes, int nfaces, double back);
+
+/* The characters (Scope.rows, the dots): out is cols * rows cells of 8 bytes as clio_dots gives them - the
+ * braille bits, the kind (CLIO_BLANK, CLIO_DOTS, CLIO_TWO), the dots' colour and the background's. colours:
+ * 0xRRGGBB for each ink number. glow: a bright character lights its background; has_paper: the display has
+ * a background of its own. Returns 0; -1 for a size that is not positive or an ink there is no colour for. */
+CLIO_PICTURE_API int clio_scope_cells(const clio_scope *s, const uint32_t *colours, int ncolours, int glow,
+                                      int has_paper, uint32_t paper, uint8_t *out);
 
 #ifdef __cplusplus
 }

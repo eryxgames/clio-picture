@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org). Each follows CLIo's Python, which
 is the reference.
 
+## 0.10.0
+
+The vector display.
+
+- `clio_scope` and `clio_eye`, and six functions that are CLIo's `Scope` (`engine/vector.py`):
+  `clio_scope_clear` (a new frame: afterglow), `clio_scope_dot`, `clio_scope_line2` (a line in
+  dots: cut to the display, each dot lit once, hidden where a face is in front of all of a dot's
+  neighbours, dimmed by distance), `clio_scope_wire` (a thing's lines from its points in space,
+  cut at the eye's near plane; a byte for each line left out), `clio_scope_hide` (a thing's
+  faces, cut at the near plane, fanned and filled into the depth buffer) and `clio_scope_cells`
+  (the braille characters with their colours, as `clio_dots` gives cells).
+- The arrays are the caller's; the tangent in an eye's `f` is the caller's; the way a line runs
+  is told by comparing its rise with its run (no arctangent), as CLIo now tells it. So nothing
+  here depends on a machine's maths library.
+- The reel's surface scan at 100 x 28: 27 ms in Python, 5.4 ms here. A first-person level as a
+  scan: 27 to 3.4 ms; in lines: 13.4 to 3.6 ms. The station starter's helm console at 112 x 34:
+  11.3 to 5.0 ms. What is left is Python making the things that are drawn.
+- `tests/scope_cases.h` (made by `tests/make_scope_cases.py`): three frames of a display with
+  afterglow - a box before a net and a post from three sides, lines that pass behind the eye and
+  leave the display, lines and dots drawn by hand - and the characters with and without a glow
+  and a background.
+
 ## 0.9.0
 
 Slopes in the mesh view.

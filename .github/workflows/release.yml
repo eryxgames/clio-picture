@@ -91,6 +91,11 @@ jobs:
           else
             echo "This CLIo has no tests/test_picture.py yet."
           fi
+          if grep -q "class LibraryTests" tests/test_vector.py 2>/dev/null; then    # the vector display (0.10)
+            CLIO_PICTURE_LIB="$lib" CLIO_PICTURE_REQUIRE=1 python -m unittest tests.test_vector.LibraryTests -v
+          else
+            echo "This CLIo does not check the vector display against the library yet."
+          fi
 
       - name: Pack
         shell: bash

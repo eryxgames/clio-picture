@@ -10,10 +10,11 @@ on a few values before it uses it, and keeps to the Python if anything differs.
 
 C99, no dependencies, Apache-2.0.
 
-## What it does (0.9)
+## What it does (0.10)
 
 | Function | CLIo's Python | Faster by |
 | --- | --- | --- |
+| `clio_scope_clear`, `clio_scope_dot`, `clio_scope_line2`, `clio_scope_wire`, `clio_scope_hide`, `clio_scope_cells`: the vector display - lines lit dot by dot, faces filled into a depth buffer that hides the lines behind them, the characters read from the dots | `Scope` (`engine/vector.py`): `clear`, `dot`, `line2`, `draw`, `hide`, `rows` | The reel's surface scan at 100 x 28: 27 -> 5.4 ms; a level as a scan: 27 -> 3.4 ms; the station starter's helm console at 112 x 34: 11.3 -> 5.0 ms |
 | `clio_frame_rooms2`: the mesh view with slopes - sloped floors and ceilings (ramps, a tube's sides) and the sloped edges of the faces beside them | `Mesh.draw` with slopes (`engine/mesh.py`) | SIM-13 at 160 x 45, lit and raining: 62.8 -> 18.4 ms |
 | `clio_frame_more`, `clio_frame_surface`: surfaces lit by their materials - a G-buffer the rooms fill and the things mark, then ambient, lamps, GGX highlights, glow, floors' dim reflections, wet floors and the rain's splashes, fog and lightning | `surface.shade`, `surface.splashes` (`engine/surface.py`) and the G-buffer of `Mesh.draw` | a lit picture 5-6 times (E1M8 at 160 x 45: 46 -> 8.5 ms) |
 | `clio_frame_more`'s `low`: the mesh view's floors and ceilings at half width | `Mesh.flat` in low detail | - |
@@ -94,6 +95,9 @@ make test       # and check it against CLIo's values (tests/cases.h)
 `tests/cases.h` holds what CLIo's Python draws for a made-up land, sky and rooms, and the
 calls CLIo makes on a frame (recorded) with what its Python draws for the same; after a change in
 CLIo's pictures, write it again with `python3 tests/make_cases.py PATH/TO/CLIo > tests/cases.h`.
+`tests/scope_cases.h` is the same for the vector display: the calls that draw three frames of a
+small scene and the sums of what they leave (`python3 tests/make_scope_cases.py PATH/TO/CLIo >
+tests/scope_cases.h`).
 
 With Microsoft's compiler, from a Developer Command Prompt: `build.bat test`.
 
